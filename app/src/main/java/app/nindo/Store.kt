@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,7 +11,7 @@ fun today(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
 /** Rules, places, settings and per-rule usage counters. Process-wide singleton. */
 class Store(ctx: Context) {
-    private val prefs = ctx.getSharedPreferences("siteguard", Context.MODE_PRIVATE)
+    private val prefs = ctx.getSharedPreferences("nindo", Context.MODE_PRIVATE)
 
     /** Bumped on every change so screens can refresh. */
     val version = MutableStateFlow(0)

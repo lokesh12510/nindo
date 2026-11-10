@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.Manifest
 import android.app.AlarmManager
@@ -73,7 +73,7 @@ object UiNav {
 
 object Partner {
     fun hash(pin: String): String =
-        MessageDigest.getInstance("SHA-256").digest("siteguard:$pin".toByteArray()).joinToString("") { "%02x".format(it) }
+        MessageDigest.getInstance("SHA-256").digest("nindo:$pin".toByteArray()).joinToString("") { "%02x".format(it) }
 
     fun checkPin(pin: String) = GuardApp.store.partnerPinHash?.let { it == hash(pin) } ?: false
 
@@ -120,9 +120,9 @@ object Partner {
 // ============================================================== focus sessions
 
 object Focus {
-    const val ACTION_END = "app.siteguard.FOCUS_END"
-    const val ACTION_STOP = "app.siteguard.FOCUS_STOP"
-    const val ACTION_START = "app.siteguard.FOCUS_START"
+    const val ACTION_END = "app.nindo.FOCUS_END"
+    const val ACTION_STOP = "app.nindo.FOCUS_STOP"
+    const val ACTION_START = "app.nindo.FOCUS_START"
 
     fun canStop(s: Store = GuardApp.store) = !s.focusLocked && !s.strict
 
@@ -294,7 +294,7 @@ data class WeekReport(
 }
 
 object Reports {
-    const val ACTION_WEEKLY = "app.siteguard.WEEKLY_REPORT"
+    const val ACTION_WEEKLY = "app.nindo.WEEKLY_REPORT"
     private val dayFmt get() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     fun build(): WeekReport {

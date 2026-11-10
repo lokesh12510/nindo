@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import java.io.File
 import java.net.HttpURLConnection

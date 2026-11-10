@@ -46,14 +46,14 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
-            android:taskAffinity="app.siteguard.block" />
+            android:taskAffinity="app.nindo.block" />
 
         <activity
             android:name=".NudgeActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
-            android:taskAffinity="app.siteguard.nudge" />
+            android:taskAffinity="app.nindo.nudge" />
 
         <service
             android:name=".UrlWatcherService"

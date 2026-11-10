@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 /** Reels/Shorts knowledge and pure counting logic (unit-tested). */
 object Reels {

@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.accessibilityservice.AccessibilityService
 import android.content.BroadcastReceiver

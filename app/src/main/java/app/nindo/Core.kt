@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.Manifest
 import android.annotation.SuppressLint

@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import org.json.JSONObject
 import java.util.Locale

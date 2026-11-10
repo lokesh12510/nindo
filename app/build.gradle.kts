@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "app.siteguard"
+    namespace = "app.nindo"
     compileSdk = 35
     defaultConfig {
-        applicationId = "app.siteguard"
+        applicationId = "app.nindo"
         minSdk = 26
         targetSdk = 35
         versionCode = 5

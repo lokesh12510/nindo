@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

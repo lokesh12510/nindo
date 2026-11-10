@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 
-package app.siteguard
+package app.nindo
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*

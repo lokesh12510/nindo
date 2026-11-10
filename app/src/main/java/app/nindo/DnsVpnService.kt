@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.content.Context
 import android.content.Intent
@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 class DnsVpnService : VpnService() {
 
     companion object {
-        const val ACTION_STOP = "app.siteguard.STOP_VPN"
+        const val ACTION_STOP = "app.nindo.STOP_VPN"
         private const val VPN_ADDR = "10.111.222.2"
         private const val DNS_ADDR = "10.111.222.1"
         val running = MutableStateFlow(false)

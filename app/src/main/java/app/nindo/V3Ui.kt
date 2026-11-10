@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
-package app.siteguard
+package app.nindo
 
 import android.Manifest
 import android.content.Intent

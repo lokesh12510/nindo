@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import android.content.ContentValues
 import android.content.Context

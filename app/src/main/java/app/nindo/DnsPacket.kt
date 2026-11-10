@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 /** Minimal IPv4 + UDP + DNS handling for the DNS-only VPN. Pure Kotlin so it is unit-testable. */
 object DnsPacket {

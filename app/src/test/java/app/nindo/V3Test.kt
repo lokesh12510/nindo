@@ -1,4 +1,4 @@
-package app.siteguard
+package app.nindo
 
 import org.junit.Assert.*
 import org.junit.Test
