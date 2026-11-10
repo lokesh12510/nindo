@@ -28,13 +28,54 @@ class DnsVpnService : VpnService() {
         private const val DNS_ADDR = "10.111.222.1"
         val running = MutableStateFlow(false)
 
-        /** Upstream resolvers for each filter level. */
+        /** Upstream resolvers for the Standard and Malware levels. */
         val UPSTREAMS = listOf(
             listOf("1.1.1.1", "8.8.8.8"),   // standard
             listOf("1.1.1.2", "1.0.0.2"),   // + malware (Cloudflare for Families)
-            listOf("1.1.1.3", "1.0.0.3"),   // + malware + adult content
         )
         val LEVEL_NAMES = listOf("Standard", "Block malware", "Block malware + adult")
+
+        /** Family-safe resolvers for the adult level: they block adult sites by category, millions of them. */
+        data class FamilyDns(val name: String, val servers: List<String>, val blurb: String)
+        val FAMILY = listOf(
+            FamilyDns("Cloudflare Families", listOf("1.1.1.3", "1.0.0.3"), "Adult + malware. Fast."),
+            FamilyDns("CleanBrowsing Adult", listOf("185.228.168.10", "185.228.169.11"), "Adult + malware + phishing. Reddit etc. still work."),
+            FamilyDns("CleanBrowsing Family", listOf("185.228.168.168", "185.228.169.168"),
+                "Strictest: adult, proxies and VPNs, mixed-content sites; forces SafeSearch and YouTube restricted mode."),
+            FamilyDns("AdGuard Family", listOf("94.140.14.15", "94.140.15.16"), "Adult + ads and trackers; forces SafeSearch."),
+            FamilyDns("OpenDNS FamilyShield", listOf("208.67.222.123", "208.67.220.123"), "Adult content."),
+        )
+
+        /**
+         * Encrypted-DNS endpoints browsers use to skip the phone's DNS. Blocking them while adult
+         * filtering is on makes Chrome, Brave, Firefox and others fall back to the filtered DNS.
+         */
+        private val DOH_HOSTS = setOf(
+            "dns.google", "dns.google.com", "dns64.dns.google", "cloudflare-dns.com", "mozilla.cloudflare-dns.com",
+            "chrome.cloudflare-dns.com", "one.one.one.one", "1dot1dot1dot1.cloudflare-dns.com", "security.cloudflare-dns.com",
+            "dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net", "doh.opendns.com", "dns.opendns.com",
+            "doh.familyshield.opendns.com", "dns.adguard.com", "dns.adguard-dns.com", "unfiltered.adguard-dns.com",
+            "dns.nextdns.io", "doh.cleanbrowsing.org", "doh.dns.sb", "dns.sb", "doh.mullvad.net", "dns.mullvad.net",
+            "dns.controld.com", "freedns.controld.com", "doh.xfinity.com", "dns.brave.com", "doh.libredns.gr",
+            "use-application-dns.net", // Firefox's "is DoH allowed here?" canary: no answer = DoH off
+        )
+
+        fun isDohHost(domain: String): Boolean {
+            val d = domain.lowercase().trimEnd('.')
+            return DOH_HOSTS.any { d == it || d.endsWith(".$it") }
+        }
+
+        /** Adult filtering is on: chosen level, or automatically because an Adult content rule is on. */
+        fun adultOn(store: Store = GuardApp.store): Boolean =
+            store.dnsLevel >= 2 || (store.familyAuto && store.rules().any { it.enabled && it.target == Target.CATEGORY && it.value == "adult" })
+
+        fun upstreams(store: Store = GuardApp.store): List<String> =
+            if (adultOn(store)) FAMILY.getOrElse(store.familyDns) { FAMILY[0] }.servers
+            else UPSTREAMS.getOrElse(store.dnsLevel) { UPSTREAMS[0] }
+
+        /** Android's Private DNS set to a specific provider sends lookups around the VPN filter. */
+        fun privateDnsBypasses(ctx: Context): Boolean =
+            runCatching { android.provider.Settings.Global.getString(ctx.contentResolver, "private_dns_mode") }.getOrNull() == "hostname"
 
         fun start(ctx: Context) = ctx.startService(Intent(ctx, DnsVpnService::class.java))
         fun stop(ctx: Context) = ctx.startService(Intent(ctx, DnsVpnService::class.java).setAction(ACTION_STOP))
@@ -101,7 +142,10 @@ class DnsVpnService : VpnService() {
 
     private fun handle(q: DnsPacket.Query, out: FileOutputStream) {
         val domain = q.name.trimEnd('.')
-        val verdict = runCatching { Engine.checkDomain(domain) }.getOrNull()
+        val verdict = runCatching {
+            Engine.checkDomain(domain)
+                ?: if (adultOn() && isDohHost(domain)) Engine.Verdict(null, "Encrypted DNS blocked so the adult filter can't be skipped") else null
+        }.getOrNull()
         val reply: ByteArray? = if (verdict != null) {
             GuardApp.db.countDns(domain, blocked = true)
             logBlock(domain, verdict.reason)
@@ -114,7 +158,7 @@ class DnsVpnService : VpnService() {
     }
 
     private fun forward(q: DnsPacket.Query): ByteArray? {
-        val servers = UPSTREAMS.getOrElse(GuardApp.store.dnsLevel) { UPSTREAMS[0] }
+        val servers = upstreams()
         for (server in servers) {
             try {
                 DatagramSocket().use { s ->
@@ -151,6 +195,10 @@ class DnsVpnService : VpnService() {
 
     override fun onRevoke() {
         Partner.alert(this, "vpn_off", "The Nindō VPN filter was turned off (another VPN or system settings).")
+        // Android can't stop this, but the pause screen can meet it straight away.
+        Urges.request(this, Urges.Request(Trigger.VPN_OFF, "VPN filter", extraLabel = "Open Nindō to turn it back on", onExtra = {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }))
         GuardApp.store.vpnWanted = false
         stopVpn(); stopSelf()
     }

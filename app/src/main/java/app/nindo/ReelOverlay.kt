@@ -36,11 +36,20 @@ class ReelOverlay(private val svc: AccessibilityService) {
     private var lastCount = 0
     private var lastCap = 0
     private val hideDetail = Runnable { countView?.text = lastCount.toString() }
+    private val autoHide = Runnable { hide() }
+
+    /** Pops the bubble in with the new count, then hides it after [ms]. */
+    fun flash(count: Int, cap: Int, ms: Long = Reels.FLASH_MS) {
+        val wasShowing = bubble != null
+        show(count, cap, fast = true)
+        if (wasShowing) update(count, cap, bump = true)
+        bubble?.let { it.removeCallbacks(autoHide); it.postDelayed(autoHide, ms) }
+    }
 
     val showing get() = bubble != null
 
     @SuppressLint("ClickableViewAccessibility")
-    fun show(count: Int, cap: Int) {
+    fun show(count: Int, cap: Int, fast: Boolean = false) {
         if (bubble != null) { update(count, cap, bump = false); return }
         val shape = GradientDrawable().apply { cornerRadius = px(24).toFloat() }
         val emoji = TextView(svc).apply { textSize = 22f }
@@ -74,13 +83,15 @@ class ReelOverlay(private val svc: AccessibilityService) {
         runCatching { wm.addView(v, lp) }.onFailure { bubble = null; return }
         // Slide in from the edge.
         v.translationX = px(120).toFloat(); v.alpha = 0f
-        v.animate().translationX(0f).alpha(1f).setDuration(420).setInterpolator(OvershootInterpolator(1.4f)).start()
+        v.animate().translationX(0f).alpha(1f).setDuration(if (fast) 220 else 420).setInterpolator(OvershootInterpolator(1.4f)).start()
+        if (fast) { v.scaleX = 1.3f; v.scaleY = 1.3f; v.animate().scaleX(1f).scaleY(1f).setStartDelay(120).setDuration(300).start() }
     }
 
     fun hide() {
         val v = bubble ?: return
         bubble = null
-        v.animate().translationX(px(120).toFloat()).alpha(0f).setDuration(250).withEndAction {
+        v.removeCallbacks(autoHide)
+        v.animate().translationX(px(120).toFloat()).alpha(0f).setDuration(200).withEndAction {
             runCatching { wm.removeView(v) }
         }.start()
     }
@@ -164,6 +175,7 @@ class ReelOverlay(private val svc: AccessibilityService) {
                         countView?.text = if (lastCap > 0) "$lastCount / $lastCap today" else "$lastCount today · ${Reels.stage(lastCount, lastCap).label}"
                         countView?.removeCallbacks(hideDetail)
                         countView?.postDelayed(hideDetail, 2500)
+                        v.removeCallbacks(autoHide); v.postDelayed(autoHide, 2600)
                         v.animate().scaleX(1.1f).scaleY(1.1f).setDuration(120).withEndAction {
                             v.animate().scaleX(1f).scaleY(1f).setDuration(200).start()
                         }.start()

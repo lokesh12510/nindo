@@ -23,11 +23,17 @@ object Kind {
     const val STRICT = "strict"
     const val TAMPER = "tamper"
     const val REELS = "reels"
+    const val URGE = "urge"
 }
 
 data class Event(val ts: Long, val kind: String, val pkg: String?, val title: String, val detail: String?, val durMs: Long)
 data class AppStat(val pkg: String, val ms: Long, val opens: Int, val scrollMs: Long, val swipes: Int, val blocks: Int)
 data class SiteStat(val host: String, val ms: Long, val visits: Int, val blocks: Int)
+data class DayStat(
+    val day: String, val ms: Long = 0, val opens: Int = 0, val reels: Int = 0, val scrollMs: Long = 0, val blocks: Int = 0,
+    /** Pause screens closed without continuing. */
+    val urgesResisted: Int = 0,
+)
 data class DnsStat(val domain: String, val queries: Int, val blocked: Int)
 data class Totals(
     val screenMs: Long, val opens: Int, val scrollMs: Long, val swipes: Int,
@@ -40,6 +46,9 @@ data class Totals(
  * table is the timeline. Everything is kept for 30 days.
  */
 class Db(ctx: Context) : SQLiteOpenHelper(ctx, "tracker.db", null, 2) {
+
+    // WAL: screens can read while the watcher or the history import writes, instead of waiting for each other.
+    init { setWriteAheadLoggingEnabled(true) }
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE app_daily(day TEXT, pkg TEXT, ms INTEGER DEFAULT 0, opens INTEGER DEFAULT 0, scroll_ms INTEGER DEFAULT 0, swipes INTEGER DEFAULT 0, blocks INTEGER DEFAULT 0, reels INTEGER DEFAULT 0, PRIMARY KEY(day, pkg))")
@@ -94,6 +103,37 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "tracker.db", null, 2) {
     }
     fun addSiteVisit(host: String) = bump("site_daily", mapOf("day" to today(), "host" to host), mapOf("visits" to 1))
     fun addSiteBlock(host: String) = bump("site_daily", mapOf("day" to today(), "host" to host), mapOf("blocks" to 1))
+
+    // ---------- backdated writes (Android usage-history import) ----------
+    fun addAppTimeAt(pkg: String, at: Long, ms: Long) {
+        if (ms <= 0) return
+        val c = Calendar.getInstance().apply { timeInMillis = at }
+        val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(c.time)
+        bump("app_daily", mapOf("day" to d, "pkg" to pkg), mapOf("ms" to ms))
+        bump("hourly", mapOf("day" to d, "hour" to c.get(Calendar.HOUR_OF_DAY)), mapOf("ms" to ms))
+    }
+
+    fun addOpenAt(pkg: String, at: Long) =
+        bump("app_daily", mapOf("day" to SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(at)), "pkg" to pkg), mapOf("opens" to 1))
+
+    fun eventAt(ts: Long, kind: String, pkg: String?, title: String, detail: String? = null, durMs: Long = 0) {
+        writableDatabase.insert("events", null, ContentValues().apply {
+            put("ts", ts); put("kind", kind); put("pkg", pkg)
+            put("title", title); put("detail", detail); put("dur_ms", durMs)
+        })
+        writes.incrementAndGet()
+    }
+
+    fun firstEventTs(kind: String): Long? =
+        readableDatabase.rawQuery("SELECT MIN(ts) FROM events WHERE kind=?", arrayOf(kind)).use {
+            if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null
+        }
+
+    fun <T> inTransaction(block: () -> T): T {
+        val db = writableDatabase
+        db.beginTransaction()
+        try { return block().also { db.setTransactionSuccessful() } } finally { db.endTransaction() }
+    }
 
     fun event(kind: String, pkg: String?, title: String, detail: String? = null, durMs: Long = 0) {
         writableDatabase.insert("events", null, ContentValues().apply {
@@ -183,6 +223,46 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "tracker.db", null, 2) {
         return days.map { it to (map[it] ?: 0L) }
     }
 
+    /** Per-day totals for the calendar, keyed by yyyy-MM-dd (days with no data are missing). */
+    fun dayStats(from: String, to: String): Map<String, DayStat> {
+        val db = readableDatabase
+        val out = HashMap<String, DayStat>()
+        db.rawQuery("SELECT day, SUM(ms), SUM(opens), SUM(reels), SUM(scroll_ms) FROM app_daily WHERE day>=? AND day<=? GROUP BY day",
+            arrayOf(from, to)).use { c ->
+            while (c.moveToNext()) out[c.getString(0)] = DayStat(c.getString(0), c.getLong(1), c.getInt(2), c.getInt(3), c.getLong(4))
+        }
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val fromTs = fmt.parse(from)!!.time
+        val toTs = fmt.parse(to)!!.time + 86_400_000L
+        db.rawQuery("SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime') d, COUNT(*) FROM events " +
+            "WHERE kind IN ('${Kind.BLOCK}','${Kind.DNS_BLOCK}') AND ts>=? AND ts<? GROUP BY d", arrayOf(fromTs.toString(), toTs.toString())).use { c ->
+            while (c.moveToNext()) {
+                val d = c.getString(0)
+                out[d] = (out[d] ?: DayStat(d)).copy(blocks = c.getInt(1))
+            }
+        }
+        db.rawQuery("SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch', 'localtime') d, COUNT(*) FROM events " +
+            "WHERE kind='${Kind.URGE}' AND detail='resisted' AND ts>=? AND ts<? GROUP BY d", arrayOf(fromTs.toString(), toTs.toString())).use { c ->
+            while (c.moveToNext()) {
+                val d = c.getString(0)
+                out[d] = (out[d] ?: DayStat(d)).copy(urgesResisted = c.getInt(1))
+            }
+        }
+        return out
+    }
+
+    /** The timeline for one day, newest first. */
+    fun eventsOn(day: String, kinds: Collection<String>? = null, limit: Int = 500): List<Event> {
+        val start = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(day)!!.time
+        val kindSql = kinds?.let { k -> " AND kind IN (${k.joinToString(",") { "'$it'" }})" } ?: ""
+        return readableDatabase.rawQuery(
+            "SELECT ts, kind, pkg, title, detail, dur_ms FROM events WHERE ts>=? AND ts<?$kindSql ORDER BY ts DESC LIMIT $limit",
+            arrayOf(start.toString(), (start + 86_400_000L).toString())
+        ).use { c ->
+            buildList { while (c.moveToNext()) add(Event(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getLong(5))) }
+        }
+    }
+
     fun totals(day: String = today()): Totals {
         val db = readableDatabase
         var screen = 0L; var opens = 0; var scroll = 0L; var swipes = 0; var reels = 0
@@ -200,7 +280,7 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "tracker.db", null, 2) {
         return Totals(screen, opens, scroll, swipes, count(Kind.BLOCK), count(Kind.NUDGE), q, b, reels)
     }
 
-    fun events(kinds: Collection<String>? = null, limit: Int = 300): List<Event> {
+    fun events(kinds: Collection<String>? = null, limit: Int = 1000): List<Event> {
         val where = kinds?.let { k -> "WHERE kind IN (${k.joinToString(",") { "'$it'" }})" } ?: ""
         return readableDatabase.rawQuery(
             "SELECT ts, kind, pkg, title, detail, dur_ms FROM events $where ORDER BY ts DESC LIMIT $limit", null

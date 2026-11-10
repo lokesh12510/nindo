@@ -1,7 +1,8 @@
 package app.nindo
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -42,8 +43,9 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
     if (showReport) ReportSheet { showReport = false }
     val t = data.totals
 
-    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        run {
             AuroraHeader(title = greeting(), subtitle = "Nindō · keep moving forward") {
                 Spacer(Modifier.height(18.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -67,7 +69,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             Column(Modifier.padding(horizontal = 16.dp).enter(1), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     StatTile(Icons.Rounded.TouchApp, "App opens", Brand.Sky, Modifier.weight(1f), { goTo(Tab.Activity) }) {
@@ -89,9 +91,9 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item { StreakCard(Modifier.padding(horizontal = 16.dp).enter(2)) { showReport = true } }
+        run { StreakCard(Modifier.padding(horizontal = 16.dp).enter(2)) { showReport = true } }
 
-        if (store.focusActive) item {
+        if (store.focusActive) run {
             Card(Modifier.padding(horizontal = 16.dp).fillMaxWidth().pressable { goTo(Tab.Focus) }, shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = Brand.Violet.copy(alpha = 0.15f))) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -102,7 +104,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             SectionCard("By hour", Modifier.padding(horizontal = 16.dp).enter(2)) {
                 val hourNow = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                 BarChart(
@@ -113,7 +115,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             SectionCard("Top apps", Modifier.padding(horizontal = 16.dp).enter(3)) {
                 if (data.apps.isEmpty()) EmptyHint(Icons.Rounded.Apps, "Turn on the watcher in Protect to start tracking apps.")
                 val max = data.apps.maxOfOrNull { it.ms }?.coerceAtLeast(1) ?: 1
@@ -130,7 +132,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             SectionCard("Top websites", Modifier.padding(horizontal = 16.dp).enter(4)) {
                 if (data.sites.isEmpty()) EmptyHint(Icons.Rounded.Language, "Sites you open in any browser appear here.")
                 val max = data.sites.maxOfOrNull { it.ms }?.coerceAtLeast(1) ?: 1
@@ -147,7 +149,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             SectionCard("Network filter", Modifier.padding(horizontal = 16.dp).enter(5)) {
                 Row {
                     Column(Modifier.weight(1f)) {
@@ -175,7 +177,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
             }
         }
 
-        item {
+        run {
             SectionCard("Last 7 days", Modifier.padding(horizontal = 16.dp).enter(6)) {
                 val fmtIn = SimpleDateFormat("yyyy-MM-dd", Locale.US)
                 val fmtOut = SimpleDateFormat("EEE", Locale.getDefault())

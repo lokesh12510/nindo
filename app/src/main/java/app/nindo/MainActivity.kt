@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -36,7 +37,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         handle(intent)
         if (android.os.Build.VERSION.SDK_INT >= 33 && !Notify.allowed(this)) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
@@ -97,7 +98,32 @@ private fun MainScaffold() {
             }
         },
     ) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        // Edge to edge: headers sit behind the status bar. Once the page scrolls past them, a scrim
+        // fades in behind the status bar and its icons turn dark (light theme), so they stay readable.
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val scrolled = remember { mutableFloatStateOf(0f) }
+        val track = remember {
+            object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                override fun onPostScroll(consumed: androidx.compose.ui.geometry.Offset, available: androidx.compose.ui.geometry.Offset,
+                    source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                    scrolled.floatValue = (scrolled.floatValue - consumed.y).coerceAtLeast(0f)
+                    return androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+        }
+        LaunchedEffect(tab) { scrolled.floatValue = 0f }
+        val threshold = with(density) { 96.dp.toPx() }
+        val scrim by remember { derivedStateOf { scrolled.floatValue > threshold } }
+        val dark = androidx.compose.foundation.isSystemInDarkTheme()
+        val view = androidx.compose.ui.platform.LocalView.current
+        SideEffect {
+            (view.context as? android.app.Activity)?.window?.let { w ->
+                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = scrim && !dark
+            }
+        }
+
+        Box(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()
+            .nestedScroll(track)) {
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
@@ -107,14 +133,23 @@ private fun MainScaffold() {
                 },
                 label = "tabs",
             ) { t ->
-                when (t) {
-                    Tab.Dashboard -> DashboardScreen { tab = it }
-                    Tab.Rules -> RulesScreen()
-                    Tab.Activity -> ActivityScreen()
-                    Tab.Focus -> FocusScreen()
-                    Tab.Protect -> ProtectScreen()
+                // Entry animations play the first time each screen opens, not on later visits or scrolls.
+                val reveal = remember(t) { RevealScope.forScreen(t) }
+                CompositionLocalProvider(LocalReveal provides reveal) {
+                    when (t) {
+                        Tab.Dashboard -> DashboardScreen { tab = it }
+                        Tab.Rules -> RulesScreen()
+                        Tab.Activity -> ActivityScreen()
+                        Tab.Focus -> FocusScreen()
+                        Tab.Protect -> ProtectScreen()
+                    }
                 }
             }
+            AnimatedVisibility(scrim, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+                Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f)))
+            }
+            SetupGate()
         }
     }
 }

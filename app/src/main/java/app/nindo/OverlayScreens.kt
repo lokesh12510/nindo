@@ -55,7 +55,7 @@ class BlockActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         bind(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() = goHome() })
         setContent { GuardTheme { BlockScreen(data.first, data.second, data.third) { goHome() } } }
@@ -85,7 +85,7 @@ private fun BlockScreen(title: String, reason: String, isApp: Boolean, onHome: (
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.padding(32.dp).graphicsLayer { alpha = enter.value; translationY = (1 - enter.value) * 80f },
+            Modifier.safeDrawingPadding().padding(32.dp).graphicsLayer { alpha = enter.value; translationY = (1 - enter.value) * 80f },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(170.dp)) {
@@ -131,7 +131,7 @@ class NudgeActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         pkg = intent.getStringExtra(EXTRA_PKG) ?: ""
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "this app"
         val minutes = intent.getIntExtra(EXTRA_MINUTES, 0)
@@ -169,7 +169,7 @@ private fun NudgeScreen(label: String, minutes: Int, swipes: Int, canSnooze: Boo
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF042F2E), Color(0xFF0F766E).copy(alpha = 0.7f + 0.3f * hue), Color(0xFF1E3A8A)))),
         contentAlignment = Alignment.Center,
     ) {
-        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.safeDrawingPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Time for a pause", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text("You've been scrolling $label for $minutes min · about $swipes swipes",

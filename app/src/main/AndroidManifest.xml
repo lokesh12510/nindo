@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -8,6 +9,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Usage Access: imports past app usage from Android's own history. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- To list launchable apps for the app blocker (Android 11+ package visibility). -->
@@ -54,6 +58,21 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity="app.nindo.nudge" />
+
+        <activity
+            android:name=".PauseActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.nindo.pause" />
+
+        <activity
+            android:name=".PauseConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.nindo.pause"
+            android:windowSoftInputMode="adjustResize|stateVisible" />
 
         <service
             android:name=".UrlWatcherService"

@@ -52,23 +52,48 @@ object Reels {
         else -> null
     }
 
+    /** The brain bubble pops up on every Nth reel, then hides. */
+    const val FLASH_EVERY = 10
+    const val FLASH_MS = 1000L
+
+    fun shouldFlash(count: Int): Boolean = count > 0 && count % FLASH_EVERY == 0
+
     /**
-     * One viewing session in a reel player. Counts a reel when the pager reaches a page
-     * further than any seen before (swiping back doesn't recount). When the app gives no
-     * page index, a swipe is a burst of scroll events after a quiet gap.
+     * One viewing session in a reel player. Counts a reel each time you swipe further
+     * forward than before (swiping back and forth doesn't recount).
+     *
+     * Best signal: the scroll distance (Android 9+) divided by the pager's page height,
+     * which stays right even when the app restarts its page numbers. Otherwise the page
+     * index, and as a last resort a burst of scroll events after a quiet gap.
      */
-    class Session(private val gapMs: Long = 5 * 60_000L, private val swipeQuietMs: Long = 650) {
+    class Session(private val gapMs: Long = 5 * 60_000L, private val swipeQuietMs: Long = 400) {
+        private var offset = 0L      // total vertical scroll in px
+        private var maxPage = -1
         private var maxIndex = -1
+        private var lastIndex = -1
         private var lastEvent = NONE
         private var lastRaw = NONE
 
-        fun reset() { maxIndex = -1; lastEvent = NONE; lastRaw = NONE }
+        fun reset() { offset = 0; maxPage = -1; maxIndex = -1; lastIndex = -1; lastEvent = NONE; lastRaw = NONE }
 
         /** @return true when this scroll event means a new reel. */
-        fun onScroll(index: Int, now: Long): Boolean {
+        fun onScroll(index: Int, now: Long, deltaY: Int = 0, pageHeight: Int = 0): Boolean {
             if (lastEvent != NONE && now - lastEvent > gapMs) reset()
+            val first = lastEvent == NONE
             lastEvent = now
+
+            if (pageHeight > 0 && (deltaY != 0 || first)) {
+                offset += deltaY
+                // A swipe counts once you're past its halfway point. The reel you start on is the baseline.
+                val page = Math.floorDiv(offset + pageHeight / 2, pageHeight.toLong()).toInt()
+                if (first) { maxPage = page; return false }
+                if (page > maxPage) { maxPage = page; return true }
+                return false
+            }
             if (index >= 0) {
+                // First event, or the app restarted its numbering (you left reels and came back): new baseline.
+                if (lastIndex < 0 || index < lastIndex - 1) { maxIndex = index; lastIndex = index; return false }
+                lastIndex = index
                 if (index > maxIndex) { maxIndex = index; return true }
                 return false
             }

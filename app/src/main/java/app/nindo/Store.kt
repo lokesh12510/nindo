@@ -133,6 +133,15 @@ class Store(ctx: Context) {
         get() = prefs.getInt("goal", 180)
         set(v) { prefs.edit().putInt("goal", v).apply(); changed() }
 
+    /** Which family-safe resolver the adult level uses (index into DnsVpnService.FAMILY). */
+    var familyDns: Int
+        get() = prefs.getInt("family_dns", 0)
+        set(v) { prefs.edit().putInt("family_dns", v).apply(); changed() }
+    /** Turn on adult DNS filtering automatically while an Adult content rule is on. */
+    var familyAuto: Boolean
+        get() = prefs.getBoolean("family_auto", true)
+        set(v) { prefs.edit().putBoolean("family_auto", v).apply(); changed() }
+
     /** 0 = standard, 1 = block malware, 2 = block malware + adult. */
     var dnsLevel: Int
         get() = prefs.getInt("dns_level", 0)
@@ -228,4 +237,68 @@ class Store(ctx: Context) {
     var reportsOn: Boolean
         get() = prefs.getBoolean("reports_on", true)
         set(v) { prefs.edit().putBoolean("reports_on", v).apply(); changed() }
+
+    // ---------- Android usage-history sync ----------
+    /** Usage history has been imported (or covered by the watcher) up to here. */
+    var usageSyncedUntil: Long
+        get() = prefs.getLong("usage_synced_until", 0)
+        set(v) { prefs.edit().putLong("usage_synced_until", v).apply() }
+    /** When the watcher's current run started. */
+    var watcherStartedAt: Long
+        get() = prefs.getLong("watcher_started_at", 0)
+        set(v) { prefs.edit().putLong("watcher_started_at", v).apply() }
+    /** Last heartbeat of the watcher (survives it being killed without a clean stop). */
+    var watcherAliveAt: Long
+        get() = prefs.getLong("watcher_alive_at", 0)
+        set(v) { prefs.edit().putLong("watcher_alive_at", v).apply() }
+
+    // ---------- mindset: pause screen, anchors, tasks, bedtime ----------
+    var pauseOn: Boolean
+        get() = prefs.getBoolean("pause_on", true)
+        set(v) { prefs.edit().putBoolean("pause_on", v).apply(); changed() }
+    /** 0 = gentle, 1 = honest, 2 = savage. */
+    var roastLevel: Int
+        get() = prefs.getInt("roast_level", 1)
+        set(v) { prefs.edit().putInt("roast_level", v).apply(); changed() }
+
+    fun anchors(): List<Anchor> = runCatching {
+        val a = JSONArray(prefs.getString("anchors", "[]"))
+        (0 until a.length()).map { Anchor.fromJson(a.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+    fun setAnchors(list: List<Anchor>) {
+        prefs.edit().putString("anchors", JSONArray().apply { list.forEach { put(it.toJson()) } }.toString()).apply(); changed()
+    }
+
+    fun tasks(): List<TaskItem> = runCatching {
+        val a = JSONArray(prefs.getString("tasks", "[]"))
+        (0 until a.length()).map { TaskItem.fromJson(a.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+    fun setTasks(list: List<TaskItem>) {
+        prefs.edit().putString("tasks", JSONArray().apply { list.forEach { put(it.toJson()) } }.toString()).apply(); changed()
+    }
+
+    var bedOn: Boolean
+        get() = prefs.getBoolean("bed_on", false)
+        set(v) { prefs.edit().putBoolean("bed_on", v).apply(); changed() }
+    /** Minutes after midnight. */
+    var bedStartMin: Int
+        get() = prefs.getInt("bed_start", 23 * 60)
+        set(v) { prefs.edit().putInt("bed_start", v).apply(); changed() }
+    var bedEndMin: Int
+        get() = prefs.getInt("bed_end", 6 * 60)
+        set(v) { prefs.edit().putInt("bed_end", v).apply(); changed() }
+    /** Also treat Do Not Disturb at night (Digital Wellbeing's Bedtime mode turns it on) as bedtime. */
+    var bedDnd: Boolean
+        get() = prefs.getBoolean("bed_dnd", true)
+        set(v) { prefs.edit().putBoolean("bed_dnd", v).apply(); changed() }
+
+    /** Start of the current clean streak (no "continue anyway" on an adult or VPN pause). */
+    val cleanSince: Long
+        get() = prefs.getLong("clean_since", 0).takeIf { it > 0 }
+            ?: System.currentTimeMillis().also { prefs.edit().putLong("clean_since", it).apply() }
+    val cleanDays: Int get() = ((System.currentTimeMillis() - cleanSince) / 86_400_000L).toInt()
+    val bestCleanDays: Int get() = maxOf(prefs.getInt("clean_best", 0), cleanDays)
+    fun resetClean() {
+        prefs.edit().putInt("clean_best", bestCleanDays).putLong("clean_since", System.currentTimeMillis()).apply(); changed()
+    }
 }

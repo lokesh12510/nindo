@@ -13,7 +13,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -59,8 +61,9 @@ fun ProtectScreen() {
         bgPerm = LocationTracker.hasBackground(ctx)
     }
 
-    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        run {
             val score = listOf(watcherOn, vpnOn, store.strict, store.hasPartner, store.pin != null).count { it }
             AuroraHeader("Protection", "$score of 5 protections on",
                 colors = listOf(Color(0xFF7C2D12), Color(0xFFDB2777), Brand.Violet)) {
@@ -71,9 +74,9 @@ fun ProtectScreen() {
             }
         }
 
-        item { key(version) { StrictCard(watcherOn) } }
+        run { key(version) { StrictCard(watcherOn) } }
 
-        item {
+        run {
             ProtectionCard(Icons.Rounded.Visibility, "Watcher", watcherOn, 1,
                 "Tracks apps, browser sites and scrolling, and blocks apps and pages.") {
                 Button({ ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, Modifier.fillMaxWidth()) {
@@ -91,14 +94,16 @@ fun ProtectScreen() {
             }
         }
 
-        item {
+        run {
             ProtectionCard(Icons.Rounded.VpnKey, "VPN network filter", vpnOn, 2,
                 "Blocks your website rules in every app and browser by filtering DNS on the phone. Other traffic isn't touched.") {
                 LabeledSwitch(if (vpnOn) "Filter is running" else "Filter is off", null, vpnOn) { on ->
                     if (on) {
                         val consent = VpnService.prepare(ctx)
                         if (consent != null) vpnConsent.launch(consent) else DnsVpnService.start(ctx)
-                    } else if (!store.strict) DnsVpnService.stop(ctx)
+                    } else if (!store.strict) {
+                        Urges.request(ctx, Urges.Request(Trigger.VPN_OFF, "VPN filter", onContinue = { DnsVpnService.stop(ctx) }))
+                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 Text("Extra protection", style = MaterialTheme.typography.labelLarge)
@@ -106,25 +111,82 @@ fun ProtectScreen() {
                 key(version) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         listOf("Standard", "Malware", "+ Adult").forEachIndexed { i, l ->
-                            SegmentedButton(store.dnsLevel == i, { if (!store.strict || i >= store.dnsLevel) store.dnsLevel = i },
+                            SegmentedButton(store.dnsLevel == i, {
+                                when {
+                                    i >= store.dnsLevel -> store.dnsLevel = i
+                                    store.strict -> {}
+                                    store.dnsLevel == 2 -> Urges.request(ctx, Urges.Request(Trigger.WEAKEN, "Adult DNS filter", onContinue = { store.dnsLevel = i }))
+                                    else -> store.dnsLevel = i
+                                }
+                            },
                                 SegmentedButtonDefaults.itemShape(i, 3)) { Text(l) }
                         }
                     }
                 }
-                Text(DnsVpnService.LEVEL_NAMES[store.dnsLevel] + when (store.dnsLevel) {
-                    1 -> " · uses Cloudflare 1.1.1.2"; 2 -> " · uses Cloudflare 1.1.1.3"; else -> " · uses Cloudflare 1.1.1.1"
-                }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                key(version) {
+                    val adult = DnsVpnService.adultOn(store)
+                    val auto = adult && store.dnsLevel < 2
+                    Text(
+                        when {
+                            auto -> "Adult filter on automatically (you have an Adult content rule)"
+                            adult -> DnsVpnService.LEVEL_NAMES[2]
+                            store.dnsLevel == 1 -> "Block malware · Cloudflare 1.1.1.2"
+                            else -> "Standard · Cloudflare 1.1.1.1"
+                        }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    LabeledSwitch("Auto adult filter", "Use a family-safe DNS whenever an Adult content rule is on", store.familyAuto) {
+                        when {
+                            it -> store.familyAuto = true
+                            store.strict -> {}
+                            else -> Urges.request(ctx, Urges.Request(Trigger.WEAKEN, "Auto adult filter", onContinue = { store.familyAuto = false }))
+                        }
+                    }
+                    AnimatedVisibility(adult) {
+                        Column {
+                            Text("Family-safe DNS", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp, bottom = 4.dp))
+                            Text("Blocks adult sites by category, so you don't have to list them one by one.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            DnsVpnService.FAMILY.forEachIndexed { i, f ->
+                                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { store.familyDns = i }
+                                    .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(store.familyDns == i, { store.familyDns = i })
+                                    Column(Modifier.weight(1f)) {
+                                        Text(f.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                        Text(f.blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                            Tip("Also blocks browsers' own encrypted DNS (Chrome, Brave, Firefox), so they can't skip the filter.")
+                            if (!vpnOn) Text("Turn on the filter above: without it, adult sites are only blocked in browsers the watcher can read.",
+                                color = Brand.Amber, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                    if (DnsVpnService.privateDnsBypasses(ctx)) {
+                        Spacer(Modifier.height(8.dp))
+                        Surface(color = Brand.Rose.copy(alpha = 0.12f), shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Private DNS is skipping the filter", color = Brand.Rose, fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium)
+                                Text("Settings → Network & internet → Private DNS → set it to Off or Automatic.",
+                                    style = MaterialTheme.typography.bodySmall)
+                                TextButton({ runCatching { ctx.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) } },
+                                    contentPadding = PaddingValues(0.dp)) { Text("Open network settings") }
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
-                Tip("Set Settings → Network → Private DNS to Off, or Android will skip the filter.")
+                Tip("Already-open pages may load for a few minutes until the phone's DNS cache expires.")
                 Tip("For automatic start after reboot, turn on Always-on VPN for Nindō.")
                 TextButton({ ctx.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }) { Text("Open VPN settings") }
             }
         }
 
-        item { BlocklistsCard() }
-        item { PartnerCard() }
+        run { BlocklistsCard() }
+        run { PartnerCard() }
 
-        item {
+        run {
             ProtectionCard(Icons.Rounded.LocationOn, "Location for place rules", locPerm && bgPerm, 3,
                 "Needed only for rules tied to places. Location stays on your phone.") {
                 when {
@@ -139,7 +201,7 @@ fun ProtectScreen() {
             }
         }
 
-        item {
+        run {
             ProtectionCard(Icons.Rounded.Password, "PIN lock", store.pin != null, 4,
                 "Needs a PIN to open Nindō and change rules.") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -149,7 +211,7 @@ fun ProtectScreen() {
             }
         }
 
-        item {
+        run {
             SectionCard("Your data", Modifier.padding(horizontal = 16.dp).enter(5)) {
                 Text("All tracking stays on this phone — daily totals for 180 days, the timeline for 30.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

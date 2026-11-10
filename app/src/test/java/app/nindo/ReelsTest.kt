@@ -8,7 +8,7 @@ class ReelsTest {
         val s = Reels.Session()
         var t = 1_000L
         fun scroll(i: Int) = s.onScroll(i, t).also { t += 100 }
-        assertTrue(scroll(0))                              // first reel
+        assertFalse(scroll(0))                             // the reel you start on is the baseline
         assertFalse(scroll(0)); assertFalse(scroll(0))     // mid-swipe events
         assertTrue(scroll(1))                              // swiped to reel 2
         assertTrue(scroll(2))
@@ -27,9 +27,37 @@ class ReelsTest {
 
     @Test fun longPauseStartsNewSession() {
         val s = Reels.Session(gapMs = 60_000)
-        assertTrue(s.onScroll(5, 0))
-        assertFalse(s.onScroll(3, 1_000))
-        assertTrue(s.onScroll(3, 120_000)) // a new visit to the reels screen
+        assertFalse(s.onScroll(5, 0))
+        assertTrue(s.onScroll(6, 500))
+        assertFalse(s.onScroll(5, 1_000))
+        assertFalse(s.onScroll(3, 120_000)) // a new visit: new baseline
+        assertTrue(s.onScroll(4, 121_000))
+    }
+
+    @Test fun restartedNumberingKeepsCounting() {
+        // Left reels at page 40, came back: the app numbers from 0 again.
+        val s = Reels.Session()
+        assertFalse(s.onScroll(40, 0)); assertTrue(s.onScroll(41, 100))
+        assertFalse(s.onScroll(0, 5_000))
+        assertTrue(s.onScroll(1, 5_500)); assertTrue(s.onScroll(2, 6_000))
+    }
+
+    @Test fun scrollDistanceCountsWholeSwipes() {
+        val s = Reels.Session()
+        val h = 2000
+        var t = 0L
+        fun d(px: Int) = s.onScroll(-1, t, px, h).also { t += 16 }
+        assertFalse(d(100))                                  // start of swipe 1: baseline
+        assertFalse(d(500)); assertTrue(d(500))              // past halfway: reel 1 counted
+        assertFalse(d(900))                                  // finishing the same swipe
+        assertFalse(d(-1500)); assertFalse(d(-500))          // swiped back
+        assertFalse(d(2000))                                 // forward to an already-seen reel
+        repeat(10) { assertTrue(d(2000)) }                   // ten new reels
+    }
+
+    @Test fun flashEveryTen() {
+        assertFalse(Reels.shouldFlash(0)); assertFalse(Reels.shouldFlash(9))
+        assertTrue(Reels.shouldFlash(10)); assertTrue(Reels.shouldFlash(20)); assertFalse(Reels.shouldFlash(21))
     }
 
     @Test fun brainStages() {

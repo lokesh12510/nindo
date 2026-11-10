@@ -7,7 +7,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -38,8 +39,10 @@ fun FocusScreen() {
     var snoozes by remember { mutableFloatStateOf(store.doomMaxSnoozes.toFloat()) }
     var goal by remember { mutableFloatStateOf(store.screenGoalMin.toFloat()) }
 
-    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
+    // A handful of big cards: a plain scrolling column composes them once, so scrolling only moves pixels.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        run {
             AuroraHeader("Focus", "Stop doom scrolling and set where rules apply",
                 colors = listOf(Color(0xFF0F766E), Brand.Teal, Color(0xFF65A30D))) {
                 Spacer(Modifier.height(14.dp))
@@ -60,11 +63,12 @@ fun FocusScreen() {
             }
         }
 
-        item { FocusSessionCard(Modifier.padding(horizontal = 16.dp).enter(1)) }
-        item { ReelCounterCard(Modifier.padding(horizontal = 16.dp).enter(2)) }
-        item { StrictBanner("guard settings are locked") }
+        run { FocusSessionCard(Modifier.padding(horizontal = 16.dp).enter(1)) }
+        run { ReelCounterCard(Modifier.padding(horizontal = 16.dp).enter(2)) }
+        run { MindsetCard(Modifier.padding(horizontal = 16.dp).enter(3)) }
+        run { StrictBanner("guard settings are locked") }
 
-        item {
+        run {
             SectionCard("Doom-scroll guard", Modifier.padding(horizontal = 16.dp).enter(2)) {
                 LabeledSwitch("Watch for endless scrolling", "Shows a breathing break after continuous scrolling", store.doomEnabled) {
                     if (!store.strict || it) store.doomEnabled = it
@@ -72,11 +76,11 @@ fun FocusScreen() {
                 AnimatedVisibility(store.doomEnabled && !store.strict) {
                     Column {
                         SliderRow("Nudge after", "${threshold.toInt()} min", threshold, 3f..30f, 26) { threshold = it }
-                        LaunchedEffect(threshold) { store.doomThresholdMin = threshold.toInt() }
+                        LaunchedEffect(threshold) { if (store.doomThresholdMin != threshold.toInt()) { kotlinx.coroutines.delay(350); store.doomThresholdMin = threshold.toInt() } }
                         SliderRow("Break after \"I'm done\"", if (cooldown.toInt() == 0) "None" else "${cooldown.toInt()} min", cooldown, 0f..60f, 11) { cooldown = it }
-                        LaunchedEffect(cooldown) { store.doomCooldownMin = cooldown.toInt() }
+                        LaunchedEffect(cooldown) { if (store.doomCooldownMin != cooldown.toInt()) { kotlinx.coroutines.delay(350); store.doomCooldownMin = cooldown.toInt() } }
                         SliderRow("\"5 more minutes\" allowed", "${snoozes.toInt()}×", snoozes, 0f..3f, 2) { snoozes = it }
-                        LaunchedEffect(snoozes) { store.doomMaxSnoozes = snoozes.toInt() }
+                        LaunchedEffect(snoozes) { if (store.doomMaxSnoozes != snoozes.toInt()) { kotlinx.coroutines.delay(350); store.doomMaxSnoozes = snoozes.toInt() } }
                         Spacer(Modifier.height(6.dp))
                         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                             SegmentedButton(!store.doomAllApps, { store.doomAllApps = false }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("Chosen apps") }
@@ -93,7 +97,7 @@ fun FocusScreen() {
             }
         }
 
-        if (scrollers.isNotEmpty()) item {
+        if (scrollers.isNotEmpty()) run {
             SectionCard("Most scrolled today", Modifier.padding(horizontal = 16.dp).enter(2)) {
                 val max = scrollers.maxOf { it.scrollMs }.coerceAtLeast(1)
                 scrollers.forEach { a ->
@@ -103,7 +107,7 @@ fun FocusScreen() {
             }
         }
 
-        item {
+        run {
             val places = remember(version) { store.places() }
             val loc by LocationTracker.current.collectAsState()
             SectionCard("Places", Modifier.padding(horizontal = 16.dp).enter(3), action = {
@@ -130,10 +134,10 @@ fun FocusScreen() {
             }
         }
 
-        item {
+        run {
             SectionCard("Daily screen-time goal", Modifier.padding(horizontal = 16.dp).enter(4)) {
                 SliderRow("Goal", fmtMinutes(goal.toInt()), goal, 30f..600f, 37) { goal = it }
-                LaunchedEffect(goal) { store.screenGoalMin = goal.toInt() }
+                LaunchedEffect(goal) { if (store.screenGoalMin != goal.toInt()) { kotlinx.coroutines.delay(350); store.screenGoalMin = goal.toInt() } }
                 Text("Shown as the ring on the Today screen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

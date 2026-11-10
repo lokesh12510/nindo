@@ -23,6 +23,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -150,13 +152,11 @@ fun FocusSessionCard(modifier: Modifier = Modifier) {
                             Switch(lock, { lock = it })
                         }
                         Spacer(Modifier.height(8.dp))
-                        val pulse = rememberInfiniteTransition(label = "start")
-                        val sc by pulse.animateFloat(1f, 1.03f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "sc")
                         Button({
                             if (!Notify.allowed(ctx) && android.os.Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
                             s.focusDefaultMin = minutes
                             Focus.start(ctx, minutes, lock)
-                        }, Modifier.fillMaxWidth().height(54.dp).graphicsLayer { scaleX = sc; scaleY = sc }, shape = RoundedCornerShape(18.dp),
+                        }, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF312E81))) {
                             Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Start $minutes min focus", fontWeight = FontWeight.Bold)
                         }
@@ -194,17 +194,11 @@ private fun CountdownRing(fraction: Float, content: @Composable () -> Unit) {
 @Composable
 fun StreakCard(modifier: Modifier, onReport: () -> Unit) {
     val streak by rememberPolled(Streaks.Result(0, 0, true, 0, 1)) { Streaks.load() }
-    val t = rememberInfiniteTransition(label = "flame")
-    val flick by t.animateFloat(0.9f, 1.12f, infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "f")
-    val tilt by t.animateFloat(-6f, 6f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "t")
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(Modifier.weight(1.2f).pressable(onReport), shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("🔥", fontSize = 34.sp, modifier = Modifier.graphicsLayer {
-                    val sc = if (streak.current > 0) flick else 1f; scaleX = sc; scaleY = sc; rotationZ = if (streak.current > 0) tilt else 0f
-                    alpha = if (streak.current > 0) 1f else 0.4f
-                })
+                Text("🔥", fontSize = 34.sp, modifier = Modifier.graphicsLayer { alpha = if (streak.current > 0) 1f else 0.4f })
                 Spacer(Modifier.width(10.dp))
                 Column {
                     AnimatedNumber(streak.current, MaterialTheme.typography.headlineSmall, suffix = if (streak.current == 1) " day" else " days")
@@ -327,11 +321,20 @@ fun StrictCard(watcherOn: Boolean) {
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { isAdmin = Strict.isAdmin(ctx) }
     val active = s.strict && now < s.strictUntil
 
-    val glow = rememberInfiniteTransition(label = "strict")
-    val g by glow.animateFloat(0.3f, 0.8f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), label = "g")
-    Card(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = androidx.compose.foundation.BorderStroke(2.dp, if (active) Brand.Violet.copy(alpha = g) else Color.Transparent)) {
+    // Glowing border, animated in the draw phase so the card doesn't recompose every frame.
+    val glow = if (active) {
+        rememberInfiniteTransition(label = "strict").animateFloat(0.3f, 0.8f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), label = "g")
+    } else null
+    Card(Modifier.padding(horizontal = 16.dp).fillMaxWidth().drawWithContent {
+            drawContent()
+            glow?.let { g ->
+                val w = 2.dp.toPx()
+                drawRoundRect(Brand.Violet.copy(alpha = g.value), topLeft = Offset(w / 2, w / 2),
+                    size = Size(size.width - w, size.height - w), cornerRadius = CornerRadius(24.dp.toPx() - w / 2),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(w))
+            }
+        }, shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconBadge(Icons.Rounded.GppGood, if (active) Brand.Violet else MaterialTheme.colorScheme.primary)

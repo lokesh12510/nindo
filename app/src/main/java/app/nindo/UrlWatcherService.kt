@@ -85,9 +85,13 @@ class UrlWatcherService : AccessibilityService() {
     private var appRuleIds: List<String> = emptyList()
     private var lastGuardCheck = 0L
     private var lastWidgetAt = 0L
+    private var lastAliveAt = 0L
 
     // reels & shorts
     private var overlay: ReelOverlay? = null
+    private var blockOverlay: BlockOverlay? = null
+    private var pauseOverlay: PauseOverlay? = null
+    private var lastNightAt = 0L
     private val reelSession = Reels.Session()
     private var reelPkg: String? = null
     private var reelsCount = 0
@@ -97,7 +101,8 @@ class UrlWatcherService : AccessibilityService() {
     private var lastCapToastAt = 0L
     private var lastIdCheck = 0L
     private var pagerKey: String? = null
-    private var pagerOk = false
+    /** Reel pagers seen filling the screen during this visit to the app. */
+    private val confirmedPagers = HashSet<String>()
     private var pagerAt = 0L
 
     private var lastBlockKey: String? = null
@@ -124,10 +129,16 @@ class UrlWatcherService : AccessibilityService() {
         })
         FocusBus.listener = ::onNudgeResult
         overlay = ReelOverlay(this)
+        blockOverlay = BlockOverlay(this)
+        pauseOverlay = PauseOverlay(this)
+        Urges.overlayHost = { r -> pauseOverlay?.show(r) ?: false }
         refreshReelDay(force = true)
         LocationTracker.start(this)
         handler.post(ticker)
+        val now = System.currentTimeMillis()
+        store.watcherStartedAt = now; store.watcherAliveAt = now; lastAliveAt = now
         running.value = true
+        UsageSync.syncAsync(this) // fill in what happened while the watcher was off
     }
 
     private fun refreshPackageSets() {
@@ -150,6 +161,11 @@ class UrlWatcherService : AccessibilityService() {
         runCatching { unregisterReceiver(screenReceiver) }
         FocusBus.listener = null
         overlay?.destroy(); overlay = null
+        blockOverlay?.destroy(); blockOverlay = null
+        Urges.overlayHost = null
+        pauseOverlay?.destroy(); pauseOverlay = null
+        val now = System.currentTimeMillis()
+        store.watcherAliveAt = now; store.usageSyncedUntil = now
         running.value = false
     }
 
@@ -180,6 +196,8 @@ class UrlWatcherService : AccessibilityService() {
     }
 
     private fun onWindow(pkg: String) {
+        // Nindō's own overlays (brain bubble, block card) fire window events, but the app underneath is still in front.
+        if (pkg == packageName && rootInActiveWindow?.packageName?.toString().let { it != null && it != packageName }) return
         when (pkg) {
             in transparent -> return
             in neutral -> switchTo(null)
@@ -205,6 +223,7 @@ class UrlWatcherService : AccessibilityService() {
             db.addOpen(newPkg)
             db.event(Kind.OPEN, newPkg, Apps.label(this, newPkg))
             checkApp(newPkg)
+            checkBedtime(newPkg, now)
         }
     }
 
@@ -229,11 +248,11 @@ class UrlWatcherService : AccessibilityService() {
         flush(now)
         Focus.check(this)
         if (now - lastWidgetAt > 60_000) { lastWidgetAt = now; GuardWidget.updateAll(this) }
+        if (now - lastAliveAt > 30_000) { lastAliveAt = now; store.watcherAliveAt = now }
         currentPkg?.let(::checkApp)
         val host = currentHost; val url = currentUrl
         if (host != null && url != null) Engine.checkSite(url, host)?.let { blockSite(host, it) }
         if (scrollPkg != null && now - lastScroll > SCROLL_GAP_MS) endScrollSession()
-        if (overlay?.showing == true && now - lastReelAt > 90_000) overlay?.hide()
         refreshReelDay()
         val d = today()
         if (d != lastPruneDay) {
@@ -250,6 +269,15 @@ class UrlWatcherService : AccessibilityService() {
             db.addAppBlock(pkg)
             db.event(Kind.BLOCK, pkg, label, v.reason)
         }
+    }
+
+    /** Opening a browser or a social/reel app at bedtime: the pause screen with a sleep message, at most every 30 min. */
+    private fun checkBedtime(pkg: String, now: Long) {
+        if (!store.pauseOn || now - lastNightAt < 30 * 60_000L) return
+        if (pkg !in BROWSERS && pkg !in Apps.SOCIAL && pkg !in store.reelApps) return
+        if (!Urges.inBedtime(this)) return
+        lastNightAt = now
+        Urges.request(this, Urges.Request(Trigger.NIGHT, Apps.label(this, pkg), pkg))
     }
 
     // ------------------------------------------------------------- browsers
@@ -271,6 +299,10 @@ class UrlWatcherService : AccessibilityService() {
             db.event(Kind.VISIT, pkg, host, url)
         }
         currentUrl = url
+        // Adult site or search: the pause screen instead of a plain block card. The page is sent back.
+        if (store.pauseOn && Urges.isAdult(url, host) &&
+            Urges.request(this, Urges.Request(Trigger.ADULT, host, pkg))
+        ) { performGlobalAction(GLOBAL_ACTION_BACK); return }
         Engine.checkSite(url, host)?.let { blockSite(host, it) }
     }
 
@@ -312,13 +344,8 @@ class UrlWatcherService : AccessibilityService() {
         lastBlockKey = key; lastBlockAt = now
         flush(now)
         performGlobalAction(if (goHome) GLOBAL_ACTION_HOME else GLOBAL_ACTION_BACK)
-        startActivity(
-            Intent(this, BlockActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                .putExtra(BlockActivity.EXTRA_TITLE, title)
-                .putExtra(BlockActivity.EXTRA_REASON, reason)
-                .putExtra(BlockActivity.EXTRA_IS_APP, goHome)
-        )
+        val headline = if (reason.contains("limit", true) || reason.contains("opens", true)) "Time's up for $title" else "$title is blocked"
+        blockOverlay?.show(headline, reason)
         return true
     }
 
@@ -354,17 +381,19 @@ class UrlWatcherService : AccessibilityService() {
         if (!isReelPager(pkg, src, event)) return
         val now = System.currentTimeMillis()
         lastReelAt = now
-        if (reelPkg != pkg) { reelSession.reset(); reelPkg = pkg }
+        if (reelPkg != pkg) { reelSession.reset(); reelPkg = pkg; confirmedPagers.clear() }
         refreshReelDay()
         val cap = store.reelCap
         if (capReached) { capAction(pkg); return }
-        if (store.reelBubble) overlay?.show(reelsCount, cap)
         val index = if (event.itemCount > 0 && event.fromIndex >= 0) event.fromIndex else -1
-        if (!reelSession.onScroll(index, now)) return
+        // Android reports -1 when the app didn't set a delta: treat it as unknown, not as a scroll.
+        val deltaY = if (Build.VERSION.SDK_INT >= 28) event.scrollDeltaY.takeIf { it != -1 } ?: 0 else 0
+        val pageH = Rect().also { src.getBoundsInScreen(it) }.height()
+        if (!reelSession.onScroll(index, now, deltaY, pageH)) return
 
         reelsCount++
         db.addReel(pkg)
-        if (store.reelBubble) overlay?.update(reelsCount, cap, bump = true)
+        if (store.reelBubble && Reels.shouldFlash(reelsCount)) overlay?.flash(reelsCount, cap)
         if (store.reelMilestones) Reels.milestone(reelsCount, cap)?.let { overlay?.toast(it) }
         if (cap > 0 && reelsCount >= cap) {
             db.event(Kind.REELS, pkg, "Reel limit reached", "$reelsCount reels today")
@@ -381,7 +410,7 @@ class UrlWatcherService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_BACK)
         if (now - lastCapToastAt > 8000) {
             lastCapToastAt = now
-            overlay?.toast("🧟 Reel limit reached · reels closed for today")
+            blockOverlay?.show("Reels closed for today", "Reel limit of ${store.reelCap} reached. Resets at midnight.", "🧟", 3000)
             db.addAppBlock(pkg)
             db.event(Kind.BLOCK, pkg, "Reels in ${Apps.label(this, pkg)}", "Reel limit of ${store.reelCap} reached")
         }
@@ -404,24 +433,28 @@ class UrlWatcherService : AccessibilityService() {
      * fill the screen (unlike a normal feed, whose posts are shorter than the screen).
      */
     private fun isReelPager(pkg: String, src: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+        if (Build.VERSION.SDK_INT >= 28 && kotlin.math.abs(event.scrollDeltaX) > 1 &&
+            kotlin.math.abs(event.scrollDeltaX) > kotlin.math.abs(event.scrollDeltaY)) return false // sideways: stories, carousels
         val r = Rect().also { src.getBoundsInScreen(it) }
         val id = src.viewIdResourceName
-        val key = "$pkg|$id|${src.className}|${r.flattenToString()}"
-        val now = System.currentTimeMillis()
-        if (Build.VERSION.SDK_INT >= 28 && kotlin.math.abs(event.scrollDeltaX) > kotlin.math.abs(event.scrollDeltaY)) return false // sideways: stories, carousels
-        if (key == pagerKey && now - pagerAt < 5000) return pagerOk
-
         val shortId = id?.substringAfter(":id/")
-        val ok = if (shortId != null && Reels.KNOWN_IDS[pkg]?.contains(shortId) == true) true else {
-            val dm = resources.displayMetrics
-            val full = r.height() >= dm.heightPixels * 0.7f && r.width() >= dm.widthPixels * 0.9f
-            if (!full) false else {
-                val child = (0 until src.childCount).firstNotNullOfOrNull { src.getChild(it) }
-                val cr = Rect().also { child?.getBoundsInScreen(it) }
-                child != null && cr.height() >= r.height() * 0.8f && cr.width() >= r.width() * 0.9f
-            }
+        if (shortId != null && Reels.KNOWN_IDS[pkg]?.contains(shortId) == true) return true
+
+        val key = "$pkg|$id|${src.className}|${r.flattenToString()}"
+        if (key in confirmedPagers) return true
+        val now = System.currentTimeMillis()
+        if (key == pagerKey && now - pagerAt < 300) return false
+
+        // Full-screen pager whose page fills it. Mid-swipe a page is only partly visible, so a pager
+        // is confirmed once (when a page fills it) and then trusted for the rest of the visit.
+        val dm = resources.displayMetrics
+        val full = r.height() >= dm.heightPixels * 0.7f && r.width() >= dm.widthPixels * 0.9f
+        val ok = full && (0 until src.childCount).any { i ->
+            val child = src.getChild(i) ?: return@any false
+            val cr = Rect().also { child.getBoundsInScreen(it) }
+            cr.height() >= r.height() * 0.8f && cr.width() >= r.width() * 0.9f
         }
-        pagerKey = key; pagerOk = ok; pagerAt = now
+        if (ok) confirmedPagers += key else { pagerKey = key; pagerAt = now }
         return ok
     }
 

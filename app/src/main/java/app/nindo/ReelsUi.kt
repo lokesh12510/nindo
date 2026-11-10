@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package app.nindo
 
@@ -53,15 +53,13 @@ fun ReelCounterCard(modifier: Modifier = Modifier) {
         if (stage.emoji != lastEmoji) { wobble.snapTo(-20f); wobble.animateTo(0f, spring(dampingRatio = 0.2f, stiffness = 200f)) }
         lastEmoji = stage.emoji
     }
-    val idle = rememberInfiniteTransition(label = "idle")
-    val float by idle.animateFloat(-4f, 4f, infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "float")
 
     SectionCard("Reels & Shorts counter", modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(96.dp).clip(CircleShape).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
                 AnimatedContent(stage.emoji, label = "emoji", transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) }) { e ->
                     Text(e, fontSize = 52.sp, modifier = Modifier.graphicsLayer {
-                        scaleX = bounce.value; scaleY = bounce.value; rotationZ = wobble.value; translationY = float
+                        scaleX = bounce.value; scaleY = bounce.value; rotationZ = wobble.value
                     })
                 }
             }
@@ -100,13 +98,13 @@ fun ReelCounterCard(modifier: Modifier = Modifier) {
             }
             AnimatedVisibility(s.reelsOn) {
                 Column {
-                    LabeledSwitch("Floating brain bubble", "Shows the live count while you watch. Drag to move, tap for details.", s.reelBubble) { s.reelBubble = it }
+                    LabeledSwitch("Floating brain bubble", "Pops up for a second every 10 reels with your count. Drag to move, tap for details.", s.reelBubble) { s.reelBubble = it }
                     LabeledSwitch("Milestone popups", "Every 25 reels, 10 before the limit, and at the limit", s.reelMilestones) { s.reelMilestones = it }
                     SliderRow("Daily reel limit", if (cap.toInt() == 0) "No limit" else "${cap.toInt()} reels", cap, 0f..300f, 29) {
                         // In strict mode the limit can only get tighter.
                         if (!locked || (it.toInt() in 1..s.reelCap.coerceAtLeast(1) && s.reelCap > 0)) cap = it
                     }
-                    LaunchedEffect(cap) { s.reelCap = cap.toInt() }
+                    LaunchedEffect(cap) { if (s.reelCap != cap.toInt()) { kotlinx.coroutines.delay(350); s.reelCap = cap.toInt() } }
                     AnimatedVisibility(cap.toInt() > 0) {
                         Column {
                             Text("When the limit is reached", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
@@ -121,12 +119,31 @@ fun ReelCounterCard(modifier: Modifier = Modifier) {
                             )
                         }
                     }
-                    OutlinedButton({ pickApps = true }, Modifier.fillMaxWidth().padding(top = 8.dp), enabled = !locked) {
-                        Icon(Icons.Rounded.Apps, null); Spacer(Modifier.width(8.dp)); Text("Counted apps (${s.reelApps.size})")
+                    // Counted apps as tap-to-toggle chips: installed reel apps first, then anything else chosen.
+                    Text("Counted apps", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+                    val installed by rememberPolled(emptyList<String>(), version) {
+                        val pm = ctx.packageManager
+                        (Reels.DEFAULT_APPS + s.reelApps).filter { p -> runCatching { pm.getApplicationInfo(p, 0) }.isSuccess }
+                            .sortedBy { Apps.label(ctx, it).lowercase() }
                     }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        installed.forEach { pkg ->
+                            val on = pkg in s.reelApps
+                            FilterChip(on, {
+                                // In strict mode apps can be added but not removed.
+                                if (on && !locked) s.reelApps = s.reelApps - pkg else if (!on) s.reelApps = s.reelApps + pkg
+                            }, { Text(Apps.label(ctx, pkg)) }, leadingIcon = { AppIcon(pkg, 20.dp) })
+                        }
+                        AssistChip({ pickApps = true }, { Text("More apps") }, leadingIcon = { Icon(Icons.Rounded.Apps, null, Modifier.size(18.dp)) })
+                    }
+                    if (locked) Text("Strict mode: you can add apps, not remove them.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     }
-    if (pickApps) AppPicker(single = false, selected = s.reelApps, onDismiss = { pickApps = false }) { s.reelApps = it; pickApps = false }
+    if (pickApps) AppPicker(single = false, selected = s.reelApps, onDismiss = { pickApps = false }) {
+        s.reelApps = if (locked) s.reelApps + it else it
+        pickApps = false
+    }
 }

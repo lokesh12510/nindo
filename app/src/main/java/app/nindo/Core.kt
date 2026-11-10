@@ -94,9 +94,13 @@ object Apps {
 
     fun neverBlock(ctx: Context): Set<String> = SAFE + homePackages(ctx) + ctx.packageName
 
-    fun isGame(ctx: Context, pkg: String): Boolean = runCatching {
-        ctx.packageManager.getApplicationInfo(pkg, 0).category == android.content.pm.ApplicationInfo.CATEGORY_GAME
-    }.getOrDefault(false)
+    private val games = ConcurrentHashMap<String, Boolean>()
+
+    fun isGame(ctx: Context, pkg: String): Boolean = games.getOrPut(pkg) {
+        runCatching {
+            ctx.packageManager.getApplicationInfo(pkg, 0).category == android.content.pm.ApplicationInfo.CATEGORY_GAME
+        }.getOrDefault(false)
+    }
 }
 
 /** Keeps the latest location for place-based rules. */
