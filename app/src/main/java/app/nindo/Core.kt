@@ -22,14 +22,19 @@ import java.util.concurrent.ConcurrentHashMap
 /** Holds the process-wide store and tracker database. */
 class GuardApp : Application() {
     companion object {
+        lateinit var app: GuardApp; private set
         lateinit var store: Store; private set
         lateinit var db: Db; private set
+        lateinit var habits: HabitDb; private set
     }
 
     override fun onCreate() {
         super.onCreate()
+        app = this
         store = Store(this)
         db = Db(this)
+        habits = HabitDb(this)
+        Thread { runCatching { habits.seedIfNeeded() }; runCatching { Reminders.scheduleAll(this) } }.start()
         Thread { Blocklists.init(filesDir) }.start()
         Notify.createChannels(this)
         Reports.schedule(this)

@@ -33,6 +33,7 @@ object UsageSync {
 
     // UsageEvents.Event types (literals: some constants are newer than minSdk 26).
     private const val RESUMED = 1            // MOVE_TO_FOREGROUND / ACTIVITY_RESUMED
+    private const val PAUSED = 2             // MOVE_TO_BACKGROUND / ACTIVITY_PAUSED
     private const val SCREEN_OFF = 16        // SCREEN_NON_INTERACTIVE
     private const val KEYGUARD_SHOWN = 17
     private const val SHUTDOWN = 26          // DEVICE_SHUTDOWN
@@ -98,12 +99,14 @@ object UsageSync {
         return opens
     }
 
-    private fun importRange(ctx: Context, from: Long, to: Long): Int {
+    private data class Session(val pkg: String, val start: Long, val end: Long)
+
+    /** Foreground sessions from Android's usage history, per app, between [from] and [to]. */
+    private fun sessions(ctx: Context, from: Long, to: Long): List<Session> {
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val skip = setOf("com.android.systemui", "android") + Apps.imePackages(ctx)
         val neutral = Apps.homePackages(ctx) + ctx.packageName
 
-        data class Session(val pkg: String, val start: Long, val end: Long)
         val sessions = ArrayList<Session>()
         var cur: String? = null
         var start = 0L
@@ -126,10 +129,58 @@ object UsageSync {
                     close(e.timeStamp)
                     if (p !in neutral) { cur = p; start = e.timeStamp }
                 }
+                // The app in front went to the background (recents, notification shade, a call…).
+                PAUSED -> if (e.packageName == cur) close(e.timeStamp)
                 SCREEN_OFF, KEYGUARD_SHOWN, SHUTDOWN -> close(e.timeStamp)
             }
         }
+        // An app still open right now counts up to now.
         close(to)
+        return sessions
+    }
+
+    @Volatile private var lastTodayAt = 0L
+
+    /** [refreshToday] off the main thread, at most every [minGapMs]. */
+    fun refreshTodayAsync(ctx: Context, minGapMs: Long = 30_000) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastTodayAt < minGapMs) return
+        lastTodayAt = now
+        val app = ctx.applicationContext
+        exec.execute {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            runCatching { refreshToday(app) }
+        }
+    }
+
+    /**
+     * Sets today's time per app (and per hour) to Android's own figures, the same ones Digital
+     * Wellbeing shows. The watcher keeps the numbers moving between refreshes; this keeps them right,
+     * including when the phone stopped the watcher in the background. Opens, scrolling and blocks are kept.
+     */
+    fun refreshToday(ctx: Context) {
+        if (!hasAccess(ctx)) return
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val from = startOfDay(now)
+            val perApp = HashMap<String, Long>()
+            val perHour = LongArray(24)
+            for (s in sessions(ctx, from, now)) {
+                var t = maxOf(s.start, from)
+                val b = minOf(s.end, now)
+                while (t < b) {
+                    val chunkEnd = minOf(b, nextHour(t))
+                    perApp[s.pkg] = (perApp[s.pkg] ?: 0L) + (chunkEnd - t)
+                    perHour[Calendar.getInstance().apply { timeInMillis = t }.get(Calendar.HOUR_OF_DAY)] += chunkEnd - t
+                    t = chunkEnd
+                }
+            }
+            db().setTodayTimes(today(), perApp, perHour)
+        }
+    }
+
+    private fun importRange(ctx: Context, from: Long, to: Long): Int {
+        val sessions = sessions(ctx, from, to)
 
         // Labels first (PackageManager calls), then short write batches so the watcher, which
         // writes on the main thread, never waits more than a few milliseconds for the database.

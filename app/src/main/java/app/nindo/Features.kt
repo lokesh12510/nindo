@@ -67,6 +67,8 @@ object Notify {
 /** Lets notifications and alarms ask the UI to open a screen. */
 object UiNav {
     val openReport = MutableStateFlow(false)
+    /** Guard tab page: 0 Rules, 1 Focus, 2 Protect. */
+    val guardPage = MutableStateFlow(0)
 }
 
 // ======================================================== accountability partner
@@ -113,7 +115,7 @@ object Partner {
         if (System.currentTimeMillis() - s.lastAlertAt(key) < gapMs) return
         s.markAlert(key)
         runCatching { GuardApp.db.event(Kind.TAMPER, null, text) }
-        if (s.partnerAlerts) send(ctx, "⚠️ $text")
+        if (s.partnerAlerts) send(ctx, "Nindō alert: $text")
     }
 }
 
@@ -155,7 +157,7 @@ object Focus {
         GuardApp.db.event(Kind.FOCUS, null, "Focus session complete", fmtDuration(dur), dur)
         clear(ctx)
         Notify.post(ctx, Notify.ID_DONE, Notify.builder(ctx, Notify.CH_FOCUS)
-            .setContentTitle("Focus session complete 🎉")
+            .setContentTitle("Focus session complete")
             .setContentText("${fmtDuration(dur)} of focus. That's your nindō — keep moving forward.")
             .setContentIntent(Notify.openApp(ctx)).setAutoCancel(true))
     }
@@ -328,8 +330,11 @@ object Reports {
         if (r.reels > 0) appendLine("Reels & Shorts: ${r.reels} (${r.reels / days}/day)")
         appendLine("App opens: ${r.opens} · Blocks: ${r.blocks} · Scroll nudges: ${r.nudges}")
         appendLine("Streak: ${r.streak.current} day(s) within goal (best ${r.streak.best})")
+        runCatching { HabitWeek.load() }.getOrNull()?.takeIf { it.due > 0 }?.let { h ->
+            appendLine("Habits: ${h.done} of ${h.due} done (${h.done * 100 / h.due}%) · +${h.xp} XP · best streak ${h.bestStreak} days")
+        }
         if (r.topApps.isNotEmpty()) appendLine("Top apps: " + r.topApps.take(3).joinToString(", ") { "${Apps.label(ctx, it.pkg)} ${fmtDuration(it.ms)}" })
-        if (r.tamper > 0) appendLine("⚠️ Protection changes this week: ${r.tamper}")
+        if (r.tamper > 0) appendLine("Protection changes this week: ${r.tamper}")
     }.trim()
 
     /** Next Sunday at 20:00. */
@@ -353,7 +358,7 @@ object Reports {
         val text = text(ctx, r)
         if (s.reportsOn) Notify.post(ctx, Notify.ID_REPORT, Notify.builder(ctx, Notify.CH_REPORT)
             .setContentTitle("Your week: ${fmtDuration(r.screenMs)} screen time")
-            .setContentText(r.changePct?.let { if (it <= 0) "${-it}% less than last week 👏" else "$it% more than last week" } ?: "Tap to see your report")
+            .setContentText(r.changePct?.let { if (it <= 0) "${-it}% less than last week. Well done." else "$it% more than last week" } ?: "Tap to see your report")
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(Notify.openApp(ctx, report = true)).setAutoCancel(true))
         if (s.hasPartner && s.partnerWeekly) Partner.send(ctx, text)
@@ -370,8 +375,13 @@ class FeatureReceiver : BroadcastReceiver() {
             Focus.ACTION_STOP -> { Focus.stop(ctx); Focus.rearm(ctx) }
             Focus.ACTION_START -> if (!GuardApp.store.focusActive) Focus.start(ctx, GuardApp.store.focusDefaultMin)
             Reports.ACTION_WEEKLY -> { Reports.deliver(ctx); Reports.schedule(ctx) }
+            Reminders.ACTION_FIRE, Reminders.ACTION_DONE, Reminders.ACTION_SNOOZE, Reminders.ACTION_SKIP -> {
+                val done = goAsync()
+                Thread { try { runCatching { Reminders.onReceive(ctx, intent) } } finally { done.finish() } }.start()
+            }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 Reports.schedule(ctx); Focus.rearm(ctx)
+                Thread { runCatching { Reminders.scheduleAll(ctx) } }.start()
                 if (GuardApp.store.vpnWanted && VpnService.prepare(ctx) == null) runCatching { DnsVpnService.start(ctx) }
             }
         }

@@ -41,7 +41,7 @@ enum class Trigger(val title: String) {
  * note, an honest roast and your real numbers, then "Close and go home" or type a phrase.
  */
 object Urges {
-    const val SECONDS = 15
+    const val SECONDS = 30
     const val PHRASE = "I am a loser"
 
     /** Typed phrase check: case and spacing don't matter, and "looser" counts too. */
@@ -166,14 +166,17 @@ object Urges {
         val s = GuardApp.store
         val clean = s.cleanDays
         if (r.trigger != Trigger.NIGHT) {
-            add(if (clean > 0) "🛡️ $clean clean day${if (clean == 1) "" else "s"}. Continuing resets it to zero."
-                else "🛡️ Day 0. Today can be day 1.")
+            add(if (clean > 0) "$clean clean day${if (clean == 1) "" else "s"}. Continuing resets it to zero."
+                else "Day 0. Today can be day 1.")
         }
         val c = Calendar.getInstance()
         val now = fmtTime(c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE))
-        if (inBedtime(ctx)) add("😴 It's $now. " + if (s.bedOn) "Bedtime was ${fmtTime(s.bedStartMin)}." else "Bedtime mode is on.")
-        val open = s.tasks().filter { !it.done }
-        if (open.isNotEmpty()) add("✅ Still to do: " + open.take(3).joinToString(", ") { it.text } + if (open.size > 3) " +${open.size - 3} more" else "")
+        if (inBedtime(ctx)) add("It's $now. " + if (s.bedOn) "Bedtime was ${fmtTime(s.bedStartMin)}." else "Bedtime mode is on.")
+        // One of today's unfinished habits, picked at random: something better to do right now.
+        HabitEngine.pendingPick()?.let { d ->
+            val streak = HabitEngine.last?.streaks?.get(d.habit.id)?.current ?: 0
+            add("Still to do: ${d.habit.name}" + if (streak > 0) " · keep your $streak-day streak" else "")
+        }
     }
 
     fun roast(r: Request): String {

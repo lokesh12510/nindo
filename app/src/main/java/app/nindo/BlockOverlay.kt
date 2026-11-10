@@ -30,56 +30,93 @@ class BlockOverlay(private val svc: AccessibilityService) {
     private var shownTitle: String? = null
     private val autoHide = Runnable { hide() }
 
-    fun show(title: String, reason: String, emoji: String = emojiFor(reason), showMs: Long = 4000) {
-        // Same block again while it's on screen (the app was reopened): keep the card, restart its timer.
+    fun show(title: String, reason: String, @Suppress("UNUSED_PARAMETER") emoji: String = "", showMs: Long = 9000) {
+        // Same block again while it's on screen (the app was reopened): keep it, restart its timer.
         root?.let { r ->
             if (title == shownTitle) { r.removeCallbacks(autoHide); r.postDelayed(autoHide, showMs); return }
             removeNow(r)
         }
+        val match = FrameLayout.LayoutParams.MATCH_PARENT
+        val wrap = FrameLayout.LayoutParams.WRAP_CONTENT
+        fun text(t: String, size: Float, color: Int, bold: Boolean = false, center: Boolean = false) = TextView(svc).apply {
+            text = t; textSize = size; setTextColor(color)
+            if (bold) typeface = Typeface.DEFAULT_BOLD
+            gravity = if (center) Gravity.CENTER else Gravity.START
+            setLineSpacing(0f, 1.15f)
+            setShadowLayer(8f, 0f, 2f, 0x66000000)
+        }
+        fun lp(top: Int) = LinearLayout.LayoutParams(match, wrap).apply { topMargin = px(top) }
 
-        val emojiView = TextView(svc).apply { text = emoji; textSize = 52f; gravity = Gravity.CENTER }
-        val titleView = TextView(svc).apply {
-            text = title; textSize = 22f; typeface = Typeface.DEFAULT_BOLD
-            setTextColor(0xFFFFFFFF.toInt()); gravity = Gravity.CENTER
-            setPadding(0, px(10), 0, px(6))
-        }
-        val reasonView = TextView(svc).apply {
-            text = reason; textSize = 15f; setTextColor(0xE6FFFFFF.toInt()); gravity = Gravity.CENTER
-        }
-        val quoteView = TextView(svc).apply {
-            text = "“${QUOTES.random()}”"; textSize = 13f; setTextColor(0x99FFFFFF.toInt()); gravity = Gravity.CENTER
-            setPadding(0, px(14), 0, px(16))
-        }
-        // Countdown bar that shrinks until the card hides.
-        val track = FrameLayout(svc).apply {
-            background = GradientDrawable().apply { cornerRadius = px(3).toFloat(); setColor(0x33FFFFFF) }
-        }
-        val bar = View(svc).apply {
-            background = GradientDrawable().apply { cornerRadius = px(3).toFloat(); setColor(0xFFFFFFFF.toInt()) }
-        }
-        track.addView(bar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, px(5)))
+        val store = GuardApp.store
+        val dim = FrameLayout(svc).apply { setBackgroundColor(0xFF0B0A1F.toInt()); setOnClickListener { hide() } }
 
-        val card = LinearLayout(svc).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(px(26), px(26), px(26), px(22))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF312E81.toInt(), 0xFF9F1239.toInt(), 0xFF5B21B6.toInt()),
-            ).apply { cornerRadius = px(30).toFloat() }
-            elevation = px(16).toFloat()
-            addView(emojiView); addView(titleView); addView(reasonView); addView(quoteView)
-            addView(track, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, px(5)))
-            addView(TextView(svc).apply {
-                text = "Tap anywhere to close"; textSize = 11f; setTextColor(0x80FFFFFF.toInt())
-                gravity = Gravity.CENTER; setPadding(0, px(8), 0, 0)
-            })
+        // The person's own photo, full screen, like the pause screen; otherwise the app's gradient.
+        val anchor = store.anchors().randomOrNull()
+        val photo = anchor?.image?.let { AnchorImages.load(svc, it, maxPx = 1600) }
+        val image = photo?.let { bmp -> android.widget.ImageView(svc).apply { setImageBitmap(bmp); scaleType = android.widget.ImageView.ScaleType.CENTER_CROP } }
+        if (image != null) dim.addView(image, FrameLayout.LayoutParams(match, match))
+        else dim.background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF1E1B4B.toInt(), 0xFF4338CA.toInt(), 0xFF7C3AED.toInt()))
+        dim.addView(View(svc).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0x40000000, 0x00000000, 0xA6000000.toInt(), 0xF5000000.toInt()))
+        }, FrameLayout.LayoutParams(match, match))
+
+        val col = LinearLayout(svc).apply { orientation = LinearLayout.VERTICAL }
+        val blocked = !(reason.contains("limit", true) || reason.contains("opens", true))
+        col.addView(text(if (blocked) "BLOCKED" else "TIME'S UP", 12f, 0xFFFFFFFF.toInt(), bold = true).apply {
+            letterSpacing = 0.12f
+            setPadding(px(14), px(7), px(14), px(7))
+            background = GradientDrawable().apply { cornerRadius = px(50).toFloat(); setColor(if (blocked) 0xCCE11D48.toInt() else 0xCC7C3AED.toInt()) }
+        }, LinearLayout.LayoutParams(wrap, wrap))
+        col.addView(text(title, 30f, 0xFFFFFFFF.toInt(), bold = true), lp(12))
+        col.addView(text(reason, 15f, 0xE6FFFFFF.toInt()), lp(6))
+        val note = anchor?.note?.takeIf { it.isNotBlank() } ?: QUOTES.random()
+        col.addView(text("“$note”", 20f, 0xFFFFFFFF.toInt(), bold = true), lp(20))
+
+        // Streaks, for motivation.
+        val goal = runCatching { Streaks.load().current }.getOrDefault(0)
+        val clean = store.cleanDays
+        val habitBest = HabitEngine.peek()?.streaks?.values?.maxOfOrNull { it.current } ?: 0
+        val stats = LinearLayout(svc).apply { orientation = LinearLayout.HORIZONTAL }
+        fun stat(value: String, label: String, first: Boolean) {
+            val box = LinearLayout(svc).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(px(12), px(10), px(12), px(10))
+                background = GradientDrawable().apply { cornerRadius = px(16).toFloat(); setColor(0x26FFFFFF) }
+                addView(text(value, 20f, 0xFFFFFFFF.toInt(), bold = true))
+                addView(text(label, 11f, 0xB3FFFFFF.toInt()))
+            }
+            stats.addView(box, LinearLayout.LayoutParams(0, wrap, 1f).apply { if (!first) leftMargin = px(8) })
+        }
+        stat("$goal", "day goal streak", true)
+        stat("$clean", "clean days", false)
+        stat("$habitBest", "best habit streak", false)
+        col.addView(stats, lp(18))
+        HabitEngine.pendingPick()?.let { d ->
+            col.addView(text("Do this instead: ${d.habit.name}", 15f, 0xFFFCD34D.toInt(), bold = true), lp(14))
         }
 
-        val dim = FrameLayout(svc).apply {
-            setBackgroundColor(0xB30B0A1F.toInt())
-            addView(card, FrameLayout.LayoutParams(px(320), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        // Countdown bar, then the close button.
+        val track = FrameLayout(svc).apply { background = GradientDrawable().apply { cornerRadius = px(3).toFloat(); setColor(0x33FFFFFF) } }
+        val bar = View(svc).apply { background = GradientDrawable().apply { cornerRadius = px(3).toFloat(); setColor(0xFFFFFFFF.toInt()) } }
+        track.addView(bar, FrameLayout.LayoutParams(match, px(4)))
+        col.addView(track, LinearLayout.LayoutParams(match, px(4)).apply { topMargin = px(22) })
+        col.addView(text("Close", 16f, 0xFF1E1B4B.toInt(), bold = true, center = true).apply {
+            setShadowLayer(0f, 0f, 0f, 0)
+            setPadding(px(16), px(15), px(16), px(15))
+            background = GradientDrawable().apply { cornerRadius = px(50).toFloat(); setColor(0xFFFFFFFF.toInt()) }
             setOnClickListener { hide() }
+        }, lp(16))
+
+        dim.addView(col, FrameLayout.LayoutParams(match, wrap, Gravity.BOTTOM))
+        dim.setOnApplyWindowInsetsListener { v, insets ->
+            val bars = androidx.core.view.WindowInsetsCompat.toWindowInsetsCompat(insets, v).getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            col.setPadding(px(24) + bars.left, 0, px(24) + bars.right, px(28) + bars.bottom)
+            insets
         }
+
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -88,17 +125,16 @@ class BlockOverlay(private val svc: AccessibilityService) {
         )
         fullBleed(lp)
         if (runCatching { wm.addView(dim, lp) }.isFailure) return
-        root = dim; this.card = card; shownTitle = title
-        // Hardware layers keep the fades smooth instead of re-rendering every child each frame.
+        root = dim; this.card = col; shownTitle = title
+        dim.requestApplyInsets()
         dim.setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-        // Enter: fade the dim, pop the card, wobble the emoji, run the countdown.
+        // Enter: fade in, text rises, photo slowly zooms, countdown runs.
         dim.alpha = 0f
-        dim.animate().alpha(1f).setDuration(220).start()
-        card.scaleX = 0.7f; card.scaleY = 0.7f; card.alpha = 0f
-        card.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(420).setInterpolator(OvershootInterpolator(1.8f)).start()
-        emojiView.rotation = -30f
-        emojiView.animate().rotation(0f).setStartDelay(150).setDuration(800).setInterpolator(OvershootInterpolator(5f)).start()
+        dim.animate().alpha(1f).setDuration(260).start()
+        col.translationY = px(40).toFloat(); col.alpha = 0f
+        col.animate().translationY(0f).alpha(1f).setDuration(500).setInterpolator(DecelerateInterpolator()).start()
+        image?.animate()?.scaleX(1.1f)?.scaleY(1.1f)?.setDuration(showMs)?.setInterpolator(LinearInterpolator())?.start()
         bar.post {
             bar.pivotX = 0f
             bar.animate().scaleX(0f).setDuration(showMs).setInterpolator(LinearInterpolator()).start()
@@ -130,15 +166,6 @@ class BlockOverlay(private val svc: AccessibilityService) {
     }
 
     companion object {
-        fun emojiFor(reason: String): String = when {
-            reason.contains("Reel", true) -> "🧟"
-            reason.contains("limit", true) -> "⏳"
-            reason.contains("opens", true) -> "🔁"
-            reason.contains("Focus", true) -> "🎯"
-            reason.contains("Break", true) -> "🌿"
-            else -> "🛑"
-        }
-
         private val QUOTES = listOf(
             "Your nindō: never give up on yourself.",
             "Stay committed. Keep moving forward.",

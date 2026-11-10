@@ -45,7 +45,6 @@ fun ProtectScreen() {
     var locPerm by remember { mutableStateOf(LocationTracker.hasPermission(ctx)) }
     var bgPerm by remember { mutableStateOf(LocationTracker.hasBackground(ctx)) }
     var pinDialog by remember { mutableStateOf(false) }
-    var confirmClear by remember { mutableStateOf(false) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         locPerm = LocationTracker.hasPermission(ctx); bgPerm = LocationTracker.hasBackground(ctx)
         if (locPerm) LocationTracker.start(ctx)
@@ -79,8 +78,9 @@ fun ProtectScreen() {
         run {
             ProtectionCard(Icons.Rounded.Visibility, "Watcher", watcherOn, 1,
                 "Tracks apps, browser sites and scrolling, and blocks apps and pages.") {
-                Button({ ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, Modifier.fillMaxWidth()) {
-                    Text(if (watcherOn) "Open Accessibility settings" else "Turn on in Accessibility settings")
+                // Only needed until access is given.
+                if (!watcherOn) Button({ ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, Modifier.fillMaxWidth()) {
+                    Text("Turn on in Accessibility settings")
                 }
                 AnimatedVisibility(!watcherOn) {
                     Column {
@@ -211,27 +211,9 @@ fun ProtectScreen() {
             }
         }
 
-        run {
-            SectionCard("Your data", Modifier.padding(horizontal = 16.dp).enter(5)) {
-                Text("All tracking stays on this phone — daily totals for 180 days, the timeline for 30.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton({ confirmClear = true }, Modifier.fillMaxWidth(), enabled = !store.strict,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                    Icon(Icons.Rounded.DeleteSweep, null); Spacer(Modifier.width(8.dp)); Text("Clear all tracking data")
-                }
-            }
-        }
     }
 
     if (pinDialog) PinSetupDialog { pinDialog = false }
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text("Clear all tracking data?") },
-        text = { Text("Usage, history and the timeline will be deleted. Rules and places are kept.") },
-        confirmButton = { TextButton({ GuardApp.db.clearAll(); confirmClear = false }) { Text("Clear") } },
-        dismissButton = { TextButton({ confirmClear = false }) { Text("Cancel") } },
-    )
 }
 
 private fun Modifier.clipRound() = this.then(Modifier.clip(RoundedCornerShape(50)))

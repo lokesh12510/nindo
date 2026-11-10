@@ -129,7 +129,7 @@ fun FocusScreen() {
                         IconButton({ store.deletePlace(p.id) }, enabled = !store.strict) { Icon(Icons.Rounded.Delete, null) }
                     }
                 }
-                if (loc == null && places.isNotEmpty()) Text("Allow location in Protect so place rules can work.",
+                if (loc == null && places.isNotEmpty()) Text("Allow location in Guard → Protect so place rules can work.",
                     style = MaterialTheme.typography.bodySmall, color = Brand.Amber)
             }
         }

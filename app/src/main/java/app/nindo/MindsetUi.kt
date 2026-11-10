@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -37,91 +38,107 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Pause screen settings: reminders (photo + note), roast level, today's tasks and bedtime. */
+/** Pause screen settings: reminders (photo + note), roast level and bedtime. To-dos come from habits. */
 @Composable
 fun MindsetCard(modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val s = GuardApp.store
     val version by s.version.collectAsState()
     val anchors = remember(version) { s.anchors() }
-    val tasks = remember(version) { s.tasks() }
     var addAnchor by remember { mutableStateOf(false) }
 
-    SectionCard("Mindset & pause screen", modifier) {
-        Text("A 15-second pause you can't skip when you turn off the filter, open adult content, or pick up your phone past bedtime.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LabeledSwitch("Pause screen", if (s.strict) "Locked on during strict mode" else null, s.pauseOn) { on ->
-            when {
-                on -> s.pauseOn = true
-                s.strict -> {}
-                else -> Urges.request(ctx, Urges.Request(Trigger.WEAKEN, "Pause screen", onContinue = { s.pauseOn = false }))
+    SectionCard("Mindset", modifier) {
+        // Pause screen on/off
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconTile(Icons.Rounded.SelfImprovement, Tone.B, 44.dp, filled = s.pauseOn)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Pause screen", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(if (s.strict) "Locked on during strict mode"
+                    else "30 seconds you can't skip: when you turn off the filter, open adult content, or use your phone past bedtime.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Spacer(Modifier.width(8.dp))
+            Switch(s.pauseOn, { on ->
+                when {
+                    on -> s.pauseOn = true
+                    s.strict -> {}
+                    else -> Urges.request(ctx, Urges.Request(Trigger.WEAKEN, "Pause screen", onContinue = { s.pauseOn = false }))
+                }
+            })
         }
 
         AnimatedVisibility(s.pauseOn) {
             Column {
-                Text("Roast", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf("Gentle", "Honest", "Savage").forEachIndexed { i, l ->
-                        SegmentedButton(s.roastLevel == i, { s.roastLevel = i }, SegmentedButtonDefaults.itemShape(i, 3)) { Text(l) }
-                    }
-                }
-
-                // ---- reminders
-                Text("Your reminders", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 16.dp))
-                Text("A photo and a line that would stop you: family, a goal, how you want to feel. One is shown each time.",
+                // ---- your reminders: photo cards
+                Text("Your reminders", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
+                Text("A photo and a line that would stop you. One fills the screen each time.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     anchors.forEach { a -> AnchorTile(a) { AnchorImages.delete(ctx, a.image); s.setAnchors(s.anchors().filter { it.id != a.id }) } }
                     Box(
-                        Modifier.size(width = 120.dp, height = 150.dp).clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant).clickable { addAnchor = true },
+                        Modifier.size(width = 128.dp, height = 176.dp).clip(RoundedCornerShape(20.dp))
+                            .background(Tone.B.copy(alpha = 0.08f)).border(1.5.dp, Tone.B.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+                            .clickable { addAnchor = true },
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Rounded.AddPhotoAlternate, null, tint = MaterialTheme.colorScheme.primary)
-                            Text("Add", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            IconTile(Icons.Rounded.AddPhotoAlternate, Tone.B, 44.dp)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Add photo", style = MaterialTheme.typography.labelLarge, color = Tone.B)
                         }
                     }
                 }
 
-                // ---- tasks
-                Text("Today's tasks", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 16.dp))
-                Text("Unfinished ones are listed on the pause screen.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                tasks.forEach { t ->
+                // ---- roast level: three cards
+                Text("Tone", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        Triple("Gentle", Icons.Rounded.Spa, "Kind words"),
+                        Triple("Honest", Icons.Rounded.RecordVoiceOver, "Straight talk"),
+                        Triple("Savage", Icons.Rounded.LocalFireDepartment, "No mercy"),
+                    ).forEachIndexed { i, (label, icon, hint) ->
+                        val sel = s.roastLevel == i
+                        val c = listOf(Brand.Green, Tone.B, Brand.Rose)[i]
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                            .border(if (sel) 2.dp else 1.dp, if (sel) c else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
+                            .background(if (sel) c.copy(alpha = 0.08f) else Color.Transparent)
+                            .clickable { s.roastLevel = i }.padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(icon, null, tint = if (sel) c else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(4.dp))
+                            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Text(hint, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // ---- bedtime: its own tinted panel
+                Column(Modifier.padding(top = 18.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                    .background(Tone.A.copy(alpha = 0.07f)).padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(t.done, { d -> s.setTasks(s.tasks().map { if (it.id == t.id) it.copy(done = d) else it }) })
-                        Text(t.text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                            textDecoration = if (t.done) TextDecoration.LineThrough else null,
-                            color = if (t.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
-                        IconButton({ s.setTasks(s.tasks().filter { it.id != t.id }) }) { Icon(Icons.Rounded.Close, "Delete", Modifier.size(18.dp)) }
+                        IconTile(Icons.Rounded.Bedtime, Tone.A, 40.dp, filled = s.bedOn)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Bedtime", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text("Browsers and social apps show a sleep reminder", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(s.bedOn, { s.bedOn = it })
                     }
-                }
-                var newTask by remember { mutableStateOf("") }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(newTask, { newTask = it }, Modifier.weight(1f), placeholder = { Text("Add a task") },
-                        singleLine = true, shape = RoundedCornerShape(14.dp))
-                    IconButton({
-                        if (newTask.isNotBlank()) { s.setTasks(s.tasks() + TaskItem(text = newTask.trim())); newTask = "" }
-                    }) { Icon(Icons.Rounded.AddCircle, "Add task", tint = MaterialTheme.colorScheme.primary) }
-                }
-                if (tasks.any { it.done }) TextButton({ s.setTasks(s.tasks().filter { !it.done }) }) { Text("Clear done") }
-
-                // ---- bedtime
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
-                LabeledSwitch("Bedtime", "Opening browsers or social apps then shows a sleep reminder", s.bedOn) { s.bedOn = it }
-                AnimatedVisibility(s.bedOn) {
-                    Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TimeButton("From", s.bedStartMin, Modifier.weight(1f)) { s.bedStartMin = it }
-                        TimeButton("Until", s.bedEndMin, Modifier.weight(1f)) { s.bedEndMin = it }
+                    AnimatedVisibility(s.bedOn) {
+                        Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TimeButton("From", s.bedStartMin, Modifier.weight(1f)) { s.bedStartMin = it }
+                            TimeButton("Until", s.bedEndMin, Modifier.weight(1f)) { s.bedEndMin = it }
+                        }
                     }
+                    LabeledSwitch("Follow Bedtime mode", "Also when Digital Wellbeing's Bedtime mode or Do Not Disturb is on at night", s.bedDnd) { s.bedDnd = it }
                 }
-                LabeledSwitch("Follow Bedtime mode", "Also at night when Digital Wellbeing's Bedtime mode or Do Not Disturb is on", s.bedDnd) { s.bedDnd = it }
 
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton({ Urges.request(ctx, Urges.Request(Trigger.PREVIEW, "preview")) }, Modifier.fillMaxWidth()) {
+                Text("The pause screen also suggests one of today's unfinished habits.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp))
+                Spacer(Modifier.height(10.dp))
+                FilledTonalButton({ Urges.request(ctx, Urges.Request(Trigger.PREVIEW, "preview")) }, Modifier.fillMaxWidth().height(48.dp)) {
                     Icon(Icons.Rounded.Visibility, null); Spacer(Modifier.width(8.dp)); Text("Preview the pause screen")
                 }
             }
@@ -137,7 +154,7 @@ private fun AnchorTile(a: Anchor, onDelete: () -> Unit) {
     val bmp by produceState<Bitmap?>(null, a.image) {
         value = a.image?.let { withContext(Dispatchers.IO) { AnchorImages.load(ctx, it, 400) } }
     }
-    Box(Modifier.size(width = 120.dp, height = 150.dp).clip(RoundedCornerShape(18.dp))
+    Box(Modifier.size(width = 128.dp, height = 176.dp).clip(RoundedCornerShape(20.dp))
         .background(Brush.verticalGradient(listOf(Brand.Indigo, Brand.Violet)))) {
         bmp?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         if (a.note.isNotBlank()) {

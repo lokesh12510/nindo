@@ -11,6 +11,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,83 +84,91 @@ fun FocusSessionCard(modifier: Modifier = Modifier) {
     var refused by remember { mutableStateOf(false) }
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { Focus.rearm(ctx) }
 
-    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = Color.Transparent)) {
-        Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF312E81), Color(0xFF6D28D9), Color(0xFF0F766E)))).padding(20.dp)) {
-            AnimatedContent(s.focusActive, label = "focus", transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.92f)) togetherWith fadeOut() }) { active ->
-                if (active) {
-                    val total = (s.focusUntil - s.focusStart).coerceAtLeast(1)
-                    val left = (s.focusUntil - now).coerceAtLeast(0)
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Focus session", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelLarge)
-                        Spacer(Modifier.height(12.dp))
-                        CountdownRing(left.toFloat() / total) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(String.format(Locale.US, "%d:%02d", left / 60_000, (left / 1000) % 60), color = Color.White,
-                                    fontSize = 40.sp, fontWeight = FontWeight.Bold)
-                                Text("until ${fmtClock(s.focusUntil)}", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text("Blocking ${s.focusApps.size} apps + ${s.focusCategories.joinToString { Blocklists.category(it)?.name ?: it }}",
-                            color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(12.dp))
-                        if (Focus.canStop(s)) OutlinedButton({ Focus.stop(ctx) },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Stop early") }
-                        else Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
-                            Text(if (s.strict) "Locked by strict mode" else "Locked session", color = Color.White, style = MaterialTheme.typography.labelLarge)
+    HeroCard(modifier) {
+        AnimatedContent(s.focusActive, label = "focus", transitionSpec = { (fadeIn() + scaleIn(initialScale = 0.94f)) togetherWith fadeOut() }) { active ->
+            if (active) {
+                val total = (s.focusUntil - s.focusStart).coerceAtLeast(1)
+                val left = (s.focusUntil - now).coerceAtLeast(0)
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("FOCUSING", color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(14.dp))
+                    Ring(left.toFloat() / total, 180.dp, 10.dp, Color.White, Color.White.copy(alpha = 0.18f)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(String.format(Locale.US, "%d:%02d", left / 60_000, (left / 1000) % 60), color = Color.White,
+                                fontSize = 38.sp, fontWeight = FontWeight.Bold)
+                            Text("until ${fmtClock(s.focusUntil)}", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                } else {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.CenterFocusStrong, null, tint = Color.White)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Focus session", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FocusTag(Icons.Rounded.Apps, "${s.focusApps.size} apps")
+                        s.focusCategories.forEach { FocusTag(Icons.Rounded.Block, Blocklists.category(it)?.name ?: it) }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    if (Focus.canStop(s)) OutlinedButton({ Focus.stop(ctx) }, shape = RoundedCornerShape(50),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("Stop early") }
+                    else Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+                        Text(if (s.strict) "Locked by strict mode" else "Locked session", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            } else {
+                Column {
+                    Text("FOCUS SESSION", color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("$minutes", color = Color.White, fontSize = 52.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(6.dp))
+                        Text("min", color = Color.White.copy(alpha = 0.85f), fontSize = 18.sp, modifier = Modifier.padding(bottom = 10.dp))
+                        Spacer(Modifier.weight(1f))
+                        Text("ends ${fmtClock(now + minutes * 60_000L)}", color = Color.White.copy(alpha = 0.75f),
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(bottom = 12.dp))
+                    }
+                    // Length: a sideways row of pills.
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(15, 25, 30, 45, 60, 90, 120).forEach { m ->
+                            val sel = m == minutes
+                            val bg by animateColorAsState(if (sel) Color.White else Color.White.copy(alpha = 0.14f), label = "chip")
+                            Box(Modifier.clip(RoundedCornerShape(50)).background(bg).pressable { minutes = m }.padding(horizontal = 16.dp, vertical = 9.dp)) {
+                                Text(if (m < 60) "$m min" else if (m % 60 == 0) "${m / 60} h" else "${m / 60}h ${m % 60}",
+                                    color = if (sel) Tone.A else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
                         }
-                        Text("Block distractions for a while, in one tap.", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(15, 25, 45, 60, 90).forEach { m ->
-                                val sel = m == minutes
-                                val bg by animateColorAsState(if (sel) Color.White else Color.White.copy(alpha = 0.16f), label = "chip")
-                                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(bg).pressable { minutes = m }.padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center) {
-                                    Text("$m", color = if (sel) Color(0xFF312E81) else Color.White, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Block", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(6.dp))
+                    // What to block: also one sideways row.
+                    key(version) {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FocusToggle(Icons.Rounded.Apps, "${s.focusApps.size} apps", true) { pickApps = true }
+                            Blocklists.CATEGORIES.forEach { c ->
+                                val on = c.id in s.focusCategories
+                                FocusToggle(if (on) Icons.Rounded.Check else Icons.Rounded.Add, c.name, on) {
+                                    s.focusCategories = if (on) s.focusCategories - c.id else s.focusCategories + c.id
                                 }
                             }
                         }
-                        Text("minutes", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-                        Spacer(Modifier.height(10.dp))
-                        key(version) {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                AssistChip({ pickApps = true }, { Text("${s.focusApps.size} apps", color = Color.White) },
-                                    leadingIcon = { Icon(Icons.Rounded.Apps, null, tint = Color.White, modifier = Modifier.size(16.dp)) },
-                                    border = AssistChipDefaults.assistChipBorder(true, borderColor = Color.White.copy(alpha = 0.4f)))
-                                Blocklists.CATEGORIES.forEach { c ->
-                                    val on = c.id in s.focusCategories
-                                    FilterChip(on, { s.focusCategories = if (on) s.focusCategories - c.id else s.focusCategories + c.id },
-                                        { Text(c.name) },
-                                        colors = FilterChipDefaults.filterChipColors(labelColor = Color.White, selectedContainerColor = Color.White,
-                                            selectedLabelColor = Color(0xFF312E81)),
-                                        border = FilterChipDefaults.filterChipBorder(true, on, borderColor = Color.White.copy(alpha = 0.4f)))
-                                }
-                            }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.1f))
+                        .padding(start = 14.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Lock the session", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text("No stopping early", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Lock it (no stopping early)", color = Color.White, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                            Switch(lock, { lock = it })
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Button({
-                            if (!Notify.allowed(ctx) && android.os.Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            s.focusDefaultMin = minutes
-                            Focus.start(ctx, minutes, lock)
-                        }, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(18.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF312E81))) {
-                            Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Start $minutes min focus", fontWeight = FontWeight.Bold)
-                        }
+                        Switch(lock, { lock = it }, colors = SwitchDefaults.colors(checkedTrackColor = Color.White, checkedThumbColor = Tone.A))
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Button({
+                        if (!Notify.allowed(ctx) && android.os.Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        s.focusDefaultMin = minutes
+                        Focus.start(ctx, minutes, lock)
+                    }, Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(50),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Tone.A)) {
+                        Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Start focus", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -167,6 +176,25 @@ fun FocusSessionCard(modifier: Modifier = Modifier) {
     }
     if (pickApps) AppPicker(single = false, selected = s.focusApps, onDismiss = { pickApps = false }) { s.focusApps = it; pickApps = false }
     if (refused) AlertDialog({ refused = false }, confirmButton = { TextButton({ refused = false }) { Text("OK") } }, text = { Text("This session is locked.") })
+}
+
+@Composable
+private fun FocusTag(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+    Row(Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.16f)).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(6.dp))
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun FocusToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (on) Color.White else Color.White.copy(alpha = 0.12f), label = "toggle")
+    Row(Modifier.clip(RoundedCornerShape(50)).background(bg).pressable(onClick).padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = if (on) Tone.A else Color.White, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+        Text(label, color = if (on) Tone.A else Color.White, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 @Composable
@@ -223,11 +251,26 @@ fun StreakCard(modifier: Modifier, onReport: () -> Unit) {
 
 // ============================================================== weekly report
 
+/** The last 7 days of habits, for the weekly report. */
+data class HabitWeek(val done: Int, val due: Int, val xp: Int, val bestStreak: Int, val perfectDays: Int, val rows: List<Triple<Habit, Int, Int>>) {
+    companion object {
+        fun load(): HabitWeek {
+            val t = today()
+            val hist = HabitEngine.history(Days.shift(t, -6), t)
+            val snap = HabitEngine.lastOrLoad()
+            return HabitWeek(hist.values.sumOf { it.first }, hist.values.sumOf { it.second }, snap?.xpWeek?.sum() ?: 0,
+                snap?.streaks?.values?.maxOfOrNull { it.current } ?: 0, hist.values.count { it.second > 0 && it.first >= it.second },
+                HabitEngine.rates(7).sortedByDescending { if (it.third == 0) 0f else it.second.toFloat() / it.third })
+        }
+    }
+}
+
 @Composable
 fun ReportSheet(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     val s = GuardApp.store
     val report by produceState<WeekReport?>(null) { value = withContext(Dispatchers.IO) { runCatching { Reports.build() }.getOrNull() } }
+    val habits by produceState<HabitWeek?>(null) { value = withContext(Dispatchers.IO) { runCatching { HabitWeek.load() }.getOrNull() } }
     ModalBottomSheet(onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         val r = report
         if (r == null) { Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return@ModalBottomSheet }
@@ -278,6 +321,40 @@ fun ReportSheet(onDismiss: () -> Unit) {
                     }
                 }
             }
+            habits?.takeIf { it.due > 0 }?.let { hw ->
+                Spacer(Modifier.height(16.dp))
+                Text("Habits", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val f = hw.done.toFloat() / hw.due
+                    Ring(f, 76.dp, 7.dp, Brand.Green, Brand.Green.copy(alpha = 0.15f)) {
+                        Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${hw.done} of ${hw.due} habit days done", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Text("+${hw.xp} XP · best streak ${hw.bestStreak} days", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (hw.perfectDays > 0) Text("${hw.perfectDays} perfect day${if (hw.perfectDays == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodySmall, color = Brand.Green, fontWeight = FontWeight.Medium)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                hw.rows.filter { it.third > 0 }.forEach { (h, d, n) ->
+                    val hf = d.toFloat() / n
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconTile(h.category.icon, h.color, 34.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(h.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
+                            Text("$d of $n days", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Ring(hf, 30.dp, 3.dp, h.color, h.color.copy(alpha = 0.15f)) {
+                            Text("${(hf * 100).toInt()}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = h.color)
+                        }
+                    }
+                }
+            }
             if (r.topApps.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Text("Top apps", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -286,7 +363,11 @@ fun ReportSheet(onDismiss: () -> Unit) {
             }
             if (r.tamper > 0) {
                 Spacer(Modifier.height(8.dp))
-                Text("⚠️ ${r.tamper} protection change(s) this week", color = Brand.Amber, style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.WarningAmber, null, tint = Brand.Amber, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("${r.tamper} protection change(s) this week", color = Brand.Amber, style = MaterialTheme.typography.bodyMedium)
+                }
             }
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

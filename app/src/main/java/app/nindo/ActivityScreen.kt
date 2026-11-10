@@ -75,30 +75,52 @@ fun ActivityScreen() {
     val day by rememberPolled(DayDetail(), selected) { loadDay(selected) }
     val trend by rememberPolled(Trend()) { loadTrend() }
     val streak by rememberPolled(Streaks.Result(0, 0, true, 0, goalMs)) { Streaks.load() }
+    var habitMode by remember { mutableStateOf(false) }
+    val habitMonth by rememberPolled(emptyMap<String, Pair<Int, Int>>(), month) {
+        HabitEngine.history(month.atDay(1).toString(), month.atEndOfMonth().toString())
+    }
+    val dayHabits by rememberPolled(emptyList<HabitDay>(), selected) { HabitEngine.dayHabits(selected.toString()) }
+    val rates by rememberPolled(emptyList<Triple<Habit, Int, Int>>()) { HabitEngine.rates(30) }
+    val hs by rememberHabits()
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        AuroraHeader("Activity", "Your daily tracker", colors = listOf(Color(0xFF1D4ED8), Color(0xFF0891B2), Brand.Teal)) {
-            Spacer(Modifier.height(14.dp))
+        PageTitle("Insights", "Your patterns") {
+            FilledTonalIconButton({ showReport = true }) { Icon(Icons.Rounded.Assessment, "Weekly report") }
+        }
+        run {
             val onGoal = monthStats.values.count { it.ms in 1..goalMs && it.day < todayDate.toString() }
             val tracked = monthStats.values.count { it.ms > 0 && it.day < todayDate.toString() }
-            Row(horizontalArrangement = Arrangement.spacedBy(26.dp)) {
-                val version by store.version.collectAsState()
-                val clean = remember(version) { store.cleanDays }
-                HeaderStat("🔥 ${streak.current}", "goal streak")
-                HeaderStat("🛡️ $clean", if (clean == 1) "clean day" else "clean days")
-                HeaderStat("$onGoal/$tracked", "days on goal")
+            val version by store.version.collectAsState()
+            val clean = remember(version) { store.cleanDays }
+            Row(Modifier.padding(horizontal = 16.dp).enter(0), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SummaryTile(Icons.Rounded.LocalFireDepartment, Brand.Amber, "${streak.current}", "goal streak", Modifier.weight(1f))
+                SummaryTile(Icons.Rounded.Shield, Brand.Teal, "$clean", if (clean == 1) "clean day" else "clean days", Modifier.weight(1f))
+                SummaryTile(Icons.Rounded.EventAvailable, Brand.Green, "$onGoal/$tracked", "days on goal", Modifier.weight(1f))
             }
         }
 
+        SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = 16.dp).fillMaxWidth().enter(1)) {
+            SegmentedButton(!habitMode, { habitMode = false }, SegmentedButtonDefaults.itemShape(0, 2),
+                icon = { Icon(Icons.Rounded.PhoneAndroid, null, Modifier.size(18.dp)) }) { Text("Screen time") }
+            SegmentedButton(habitMode, { habitMode = true }, SegmentedButtonDefaults.itemShape(1, 2),
+                icon = { Icon(Icons.Rounded.TaskAlt, null, Modifier.size(18.dp)) }) { Text("Habits") }
+        }
+
         CalendarCard(month, selected, todayDate, monthStats, goalMs, Modifier.padding(horizontal = 16.dp).enter(1),
-            onMonth = { month = it }, onSelect = { selected = it })
+            habits = if (habitMode) habitMonth else null, onMonth = { month = it }, onSelect = { selected = it })
 
-        DayCard(selected, todayDate, day, goalMs, Modifier.padding(horizontal = 16.dp).enter(2)) { showTimeline = true }
+        if (habitMode) {
+            HabitsDayCard(selected, todayDate, dayHabits, Modifier.padding(horizontal = 16.dp).enter(2))
+            HabitRatesCard(rates, hs, Modifier.padding(horizontal = 16.dp).enter(3))
+        } else {
+            DayCard(selected, todayDate, day, goalMs, Modifier.padding(horizontal = 16.dp).enter(2)) { showTimeline = true }
+        }
 
-        WeekCard(trend, goalMs, Modifier.padding(horizontal = 16.dp).enter(3)) { showReport = true }
-
-        TrendsCard(trend, Modifier.padding(horizontal = 16.dp).enter(4))
+        if (!habitMode) {
+            WeekCard(trend, goalMs, Modifier.padding(horizontal = 16.dp).enter(3)) { showReport = true }
+            TrendsCard(trend, Modifier.padding(horizontal = 16.dp).enter(4))
+        }
     }
 
     if (showTimeline) TimelineSheet(selected) { showTimeline = false }
@@ -106,10 +128,12 @@ fun ActivityScreen() {
 }
 
 @Composable
-private fun HeaderStat(value: String, label: String) {
-    Column {
-        Text(value, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(label, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
+private fun SummaryTile(icon: ImageVector, tint: Color, value: String, label: String, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)) {
+        IconTile(icon, tint, 34.dp)
+        Spacer(Modifier.height(10.dp))
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
@@ -126,7 +150,7 @@ private fun dayColor(ms: Long, goalMs: Long): Color? = when {
 @Composable
 private fun CalendarCard(
     month: YearMonth, selected: LocalDate, today: LocalDate, stats: Map<String, DayStat>, goalMs: Long,
-    modifier: Modifier, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit,
+    modifier: Modifier, habits: Map<String, Pair<Int, Int>>? = null, onMonth: (YearMonth) -> Unit, onSelect: (LocalDate) -> Unit,
 ) {
     SectionCard(null, modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -162,8 +186,9 @@ private fun CalendarCard(
                                 if (n in 1..m.lengthOfMonth()) {
                                     val date = m.atDay(n)
                                     val st = stats[date.toString()]
-                                    DayCell(n, dayColor(st?.ms ?: 0L, goalMs), date == selected, date == today,
-                                        future = date > today, shield = (st?.urgesResisted ?: 0) > 0) { onSelect(date) }
+                                    val tone = if (habits != null) habitColor(habits[date.toString()], date == today) else dayColor(st?.ms ?: 0L, goalMs)
+                                    DayCell(n, tone, date == selected, date == today,
+                                        future = date > today, shield = habits == null && (st?.urgesResisted ?: 0) > 0) { onSelect(date) }
                                 }
                             }
                         }
@@ -173,10 +198,27 @@ private fun CalendarCard(
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Legend(Brand.Green, "On goal"); Legend(Brand.Amber, "A bit over"); Legend(Brand.Rose, "Way over")
+            if (habits != null) { Legend(Brand.Green, "All done"); Legend(Brand.Amber, "Half or more"); Legend(Brand.Rose, "Less") }
+            else { Legend(Brand.Green, "On goal"); Legend(Brand.Amber, "A bit over"); Legend(Brand.Rose, "Way over") }
         }
-        Text("🛡 = urge resisted that day", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (habits == null) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Shield, null, tint = Brand.Teal, modifier = Modifier.size(12.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("Urge resisted that day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** How a day went for habits: all done, half or more, or less. Today stays neutral until it's all done. */
+private fun habitColor(v: Pair<Int, Int>?, isToday: Boolean): Color? {
+    val (done, due) = v ?: return null
+    if (due == 0) return null
+    val f = done.toFloat() / due
+    return when {
+        f >= 1f -> Brand.Green
+        isToday -> null
+        f >= 0.5f -> Brand.Amber
+        else -> Brand.Rose
     }
 }
 
@@ -203,7 +245,7 @@ private fun DayCell(n: Int, tone: Color?, selected: Boolean, today: Boolean, fut
         // A small dot in the day's colour, so the result still shows when the day is selected.
         if (tone != null && selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(5.dp).clip(CircleShape).background(tone))
         // Resisted an urge that day.
-        if (shield) Text("🛡", Modifier.align(Alignment.TopEnd), fontSize = 9.sp)
+        if (shield) Icon(Icons.Rounded.Shield, null, tint = Brand.Teal, modifier = Modifier.align(Alignment.TopEnd).size(10.dp))
     }
 }
 
@@ -265,10 +307,12 @@ private fun DayCard(date: LocalDate, today: LocalDate, d: DayDetail, goalMs: Lon
         if (resisted + gaveIn > 0) {
             Spacer(Modifier.height(10.dp))
             Surface(shape = RoundedCornerShape(16.dp), color = Brand.Teal.copy(alpha = 0.1f)) {
-                Text(
-                    "🛡 $resisted urge${if (resisted == 1) "" else "s"} resisted" + if (gaveIn > 0) " · $gaveIn continued" else "",
-                    Modifier.fillMaxWidth().padding(12.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-                )
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Shield, null, tint = Brand.Teal, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("$resisted urge${if (resisted == 1) "" else "s"} resisted" + if (gaveIn > 0) " · $gaveIn continued" else "",
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                }
             }
         }
         if (t.screenMs > 0) {
@@ -280,9 +324,9 @@ private fun DayCard(date: LocalDate, today: LocalDate, d: DayDetail, goalMs: Lon
         }
         if (d.apps.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            val max = d.apps.maxOf { it.ms }.coerceAtLeast(1)
+            val total = t.screenMs.coerceAtLeast(1)
             d.apps.forEach { a ->
-                UsageRow({ AppIcon(a.pkg, 34.dp) }, Apps.label(ctx, a.pkg), "${a.opens} opens", fmtDuration(a.ms), a.ms.toFloat() / max)
+                ShareRow({ AppIcon(a.pkg, 34.dp) }, Apps.label(ctx, a.pkg), "${a.opens} opens", fmtDuration(a.ms), a.ms.toFloat() / total)
             }
         }
         if (t.screenMs == 0L && d.events == 0) EmptyHint(Icons.Rounded.EventBusy, "Nothing tracked on this day.")
@@ -346,10 +390,8 @@ private fun WeekCard(trend: Trend, goalMs: Long, modifier: Modifier, onReport: (
         Spacer(Modifier.height(12.dp))
         val labels = cur.map { LocalDate.parse(it.day).dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }
         GoalBars(cur.map { it.ms }, labels, goalMs)
-        Spacer(Modifier.height(12.dp))
-        Button(onReport, Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Rounded.Assessment, null); Spacer(Modifier.width(8.dp)); Text("Weekly report")
-        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onReport) { Icon(Icons.Rounded.Assessment, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Full weekly report") }
     }
 }
 
@@ -528,6 +570,85 @@ private fun TimelineRow(e: Event, time: String) {
             Text(what, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2)
             e.detail?.takeIf { it.isNotBlank() && it != e.title }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+            }
+        }
+    }
+}
+
+
+// ================================================================ habits
+
+@Composable
+private fun HabitsDayCard(date: LocalDate, today: LocalDate, list: List<HabitDay>, modifier: Modifier) {
+    val title = when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> date.format(DateTimeFormatter.ofPattern("EEEE, d MMM", Locale.getDefault()))
+    }
+    SectionCard(title, modifier, action = {
+        if (list.isNotEmpty()) Text("${list.count { it.done }} of ${list.size} done", style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+    }) {
+        if (list.isEmpty()) EmptyHint(Icons.Rounded.EventBusy, "No habits were due on this day.")
+        list.forEach { d ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(d.habit.category.icon, d.habit.color, 38.dp, filled = d.done)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(d.habit.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(when {
+                        d.done -> "Done"
+                        d.pending -> "On track"
+                        d.failed -> if (d.habit.kind == HabitKind.AVOID || d.habit.isAuto) "Slipped" else "Missed"
+                        date == today -> "Not done yet"
+                        else -> "Missed"
+                    }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                when {
+                    d.done -> Icon(Icons.Rounded.CheckCircle, "Done", tint = Brand.Green)
+                    d.pending || date == today -> Icon(Icons.Rounded.Schedule, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else -> Icon(Icons.Rounded.Cancel, "Missed", tint = Brand.Rose)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HabitRatesCard(rates: List<Triple<Habit, Int, Int>>, hs: HabitSnapshot, modifier: Modifier) {
+    if (rates.isEmpty()) return
+    val done = rates.sumOf { it.second }
+    val due = rates.sumOf { it.third }
+    val overall = if (due == 0) 0f else done.toFloat() / due
+    SectionCard("Last 30 days", modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Ring(overall, 84.dp, 8.dp, Brand.Green, Brand.Green.copy(alpha = 0.15f)) {
+                Text("${(overall * 100).toInt()}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("$done of $due habit days done", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text("Rank ${Ranks.of(hs.xp).name} · ${hs.xp} XP", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (hs.xpWeek.size == 7) Text("${hs.xpWeek.sum()} XP in the last 7 days", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        rates.sortedByDescending { if (it.third == 0) 0f else it.second.toFloat() / it.third }.forEach { (h, d, n) ->
+            val f = if (n == 0) 0f else d.toFloat() / n
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(h.category.icon, h.color, 36.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(h.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text("$d of $n days", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                val st = hs.streaks[h.id]?.current ?: 0
+                if (st > 0) { StreakBadge(st); Spacer(Modifier.width(10.dp)) }
+                Ring(f, 34.dp, 3.dp, h.color, h.color.copy(alpha = 0.15f)) {
+                    Text("${(f * 100).toInt()}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = h.color)
+                }
             }
         }
     }

@@ -160,6 +160,12 @@ fun Modifier.pressable(onClick: () -> Unit): Modifier = composed {
 
 // ------------------------------------------------------------ components
 
+/**
+ * Inside the Guard tab, page headers become one flat summary card in a single colour: the tab row
+ * above already names the page and covers the status bar.
+ */
+val LocalHeaderFlat = staticCompositionLocalOf { false }
+
 /** Gradient banner. */
 @Composable
 fun AuroraHeader(
@@ -168,6 +174,14 @@ fun AuroraHeader(
     colors: List<Color> = listOf(Brand.Indigo, Brand.Violet, Color(0xFFDB2777)),
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
+    if (LocalHeaderFlat.current) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+            .background(Tone.Deep).padding(18.dp)) {
+            if (subtitle != null) Text(subtitle, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            content()
+        }
+        return
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -193,7 +207,7 @@ fun SectionCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(18.dp)) {
             if (title != null) {

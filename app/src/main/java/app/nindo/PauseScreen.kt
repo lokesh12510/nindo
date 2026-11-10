@@ -61,100 +61,97 @@ object PauseView {
         fun px(v: Int) = (v * dp).toInt()
         var acted = false
         fun act(a: PauseAction) { if (!acted) { acted = true; onAction(a) } }
+        val match = ViewGroup.LayoutParams.MATCH_PARENT
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
 
-        fun text(t: String, size: Float, color: Int, bold: Boolean = false, center: Boolean = true) = TextView(ctx).apply {
+        fun text(t: String, size: Float, color: Int, bold: Boolean = false, center: Boolean = false) = TextView(ctx).apply {
             text = t; textSize = size; setTextColor(color)
             if (bold) typeface = Typeface.DEFAULT_BOLD
             gravity = if (center) Gravity.CENTER_HORIZONTAL else Gravity.START
             setLineSpacing(0f, 1.15f)
+            setShadowLayer(8f, 0f, 2f, 0x66000000)
         }
-        fun lp(top: Int = 0, w: Int = ViewGroup.LayoutParams.MATCH_PARENT) =
-            LinearLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(top) }
+        fun lp(top: Int = 0, w: Int = match) = LinearLayout.LayoutParams(w, wrap).apply { topMargin = px(top) }
 
-        val col = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(px(24), px(56), px(24), px(40))
-        }
+        val root = FrameLayout(ctx).apply { setBackgroundColor(0xFF0B0A1F.toInt()); isClickable = true }
 
-        // Header chip.
-        col.addView(text("⏸  ${r.trigger.title}", 13f, 0xCCFFFFFF.toInt(), bold = true).apply {
-            setPadding(px(14), px(6), px(14), px(6))
-            background = GradientDrawable().apply { cornerRadius = px(50).toFloat(); setColor(0x26FFFFFF) }
-        }, lp(0, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        // The person's own anchor: photo and note.
+        // Full-screen photo (the person's own reminder), slowly zooming; or the app's gradient.
         val anchor = store.anchors().randomOrNull()
-        anchor?.image?.let { AnchorImages.load(ctx, it) }?.let { bmp ->
-            col.addView(ImageView(ctx).apply {
-                setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP
-                background = GradientDrawable().apply { cornerRadius = px(26).toFloat(); setColor(0x22FFFFFF) }
-                clipToOutline = true
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(230)).apply { topMargin = px(18) })
-        }
-        val note = anchor?.note?.takeIf { it.isNotBlank() } ?: "Remember why you started."
-        col.addView(text("“$note”", 21f, Color.WHITE, bold = true), lp(18))
-        if (anchor == null) col.addView(text("Add your own photo and note in Focus → Mindset.", 12f, 0x80FFFFFF.toInt()), lp(6))
+        val photo = anchor?.image?.let { AnchorImages.load(ctx, it, maxPx = 1600) }
+        val image = photo?.let { bmp -> ImageView(ctx).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP } }
+        if (image != null) root.addView(image, FrameLayout.LayoutParams(match, match))
+        else root.background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF1E1B4B.toInt(), 0xFF4338CA.toInt(), 0xFF7C3AED.toInt()))
+        // Scrim: a little dark at the top for the bar, clear in the middle, dark at the bottom for the text.
+        root.addView(View(ctx).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0x73000000, 0x00000000, 0x99000000.toInt(), 0xF2000000.toInt()))
+        }, FrameLayout.LayoutParams(match, match))
 
-        // Roast.
-        col.addView(text(Urges.roast(r), 16f, 0xFFFCD34D.toInt()), lp(16))
-
-        // Facts.
-        val facts = Urges.facts(ctx, r)
-        if (facts.isNotEmpty()) {
-            val box = LinearLayout(ctx).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(px(16), px(12), px(16), px(12))
-                background = GradientDrawable().apply { cornerRadius = px(20).toFloat(); setColor(0x1AFFFFFF) }
-            }
-            facts.forEachIndexed { i, f -> box.addView(text(f, 14f, 0xE6FFFFFF.toInt(), center = false), lp(if (i == 0) 0 else 6)) }
-            col.addView(box, lp(18))
-        }
-
-        // Countdown with breathing.
+        // Top: what this is, and the countdown.
+        val top = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(text("PAUSE  ·  ${r.trigger.title.uppercase()}", 12f, 0xE6FFFFFF.toInt(), bold = true).apply {
+            letterSpacing = 0.08f
+            setPadding(px(14), px(8), px(14), px(8))
+            background = GradientDrawable().apply { cornerRadius = px(50).toFloat(); setColor(0x33FFFFFF) }
+        }, LinearLayout.LayoutParams(0, wrap, 1f).apply { rightMargin = px(12) })
         val ring = BreathRing(ctx)
-        col.addView(ring, LinearLayout.LayoutParams(px(180), px(180)).apply { topMargin = px(24) })
-        val breath = text("Breathe in…", 15f, 0xCCFFFFFF.toInt())
-        col.addView(breath, lp(8))
+        top.addView(ring, LinearLayout.LayoutParams(px(72), px(72)))
 
-        // Buttons, shown after the countdown.
+        // Bottom: the note, the roast, the facts, then the buttons.
+        val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM }
+        val note = anchor?.note?.takeIf { it.isNotBlank() } ?: "Remember why you started."
+        col.addView(text("“$note”", 28f, Color.WHITE, bold = true), lp(0))
+        if (anchor == null) col.addView(text("Add your own photo and note in Guard → Focus → Mindset.", 12f, 0x99FFFFFF.toInt()), lp(6))
+        col.addView(text(Urges.roast(r), 16f, 0xFFFCD34D.toInt()), lp(14))
+        Urges.facts(ctx, r).forEach { f ->
+            col.addView(text(f, 14f, 0xF2FFFFFF.toInt()).apply {
+                setPadding(px(14), px(10), px(14), px(10))
+                background = GradientDrawable().apply { cornerRadius = px(14).toFloat(); setColor(0x26FFFFFF) }
+            }, lp(8))
+        }
+        val breath = text("Breathe in…", 15f, 0xCCFFFFFF.toInt(), center = true)
+        col.addView(breath, lp(18))
+
         val buttons = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; alpha = 0f; visibility = View.GONE }
         fun button(label: String, filled: Boolean, a: PauseAction) = text(label, 16f, if (filled) 0xFF1E1B4B.toInt() else Color.WHITE, bold = true).apply {
             gravity = Gravity.CENTER
-            setPadding(px(16), px(15), px(16), px(15))
+            setShadowLayer(0f, 0f, 0f, 0)
+            setPadding(px(16), px(16), px(16), px(16))
             background = GradientDrawable().apply {
-                cornerRadius = px(18).toFloat()
-                if (filled) setColor(Color.WHITE) else { setColor(0x14FFFFFF); setStroke(px(1), 0x66FFFFFF) }
+                cornerRadius = px(50).toFloat()
+                if (filled) setColor(Color.WHITE) else { setColor(0x1FFFFFFF); setStroke(px(1), 0x66FFFFFF) }
             }
             setOnClickListener { act(a) }
         }
         if (r.trigger == Trigger.PREVIEW) {
             buttons.addView(button("Close preview", true, PauseAction.EXTRA), lp(0))
         } else {
-            r.extraLabel?.let { buttons.addView(button(it, false, PauseAction.EXTRA), lp(0)) }
-            buttons.addView(button("Close and go home", true, PauseAction.HOME), lp(10))
+            buttons.addView(button("Close and go home", true, PauseAction.HOME), lp(0))
+            r.extraLabel?.let { buttons.addView(button(it, false, PauseAction.EXTRA), lp(10)) }
             if (store.hasPartner) buttons.addView(button("Message ${store.partnerName}", false, PauseAction.PARTNER), lp(10))
-            if (!store.strict) buttons.addView(text("Type “${Urges.PHRASE}” to continue", 13f, 0x8CFFFFFF.toInt()).apply {
+            if (!store.strict) buttons.addView(text("Type “${Urges.PHRASE}” to continue", 13f, 0x8CFFFFFF.toInt(), center = true).apply {
                 paint.isUnderlineText = true
-                setPadding(px(8), px(14), px(8), px(6))
+                setPadding(px(8), px(14), px(8), px(4))
                 setOnClickListener { act(PauseAction.CONTINUE) }
             }, lp(6))
         }
-        col.addView(buttons, lp(22))
+        col.addView(buttons, lp(18))
 
-        val scroll = ScrollView(ctx).apply { isFillViewport = true; addView(col) }
+        val scroll = ScrollView(ctx).apply {
+            isFillViewport = true; isVerticalScrollBarEnabled = false
+            addView(col, FrameLayout.LayoutParams(match, match))
+        }
+        root.addView(scroll, FrameLayout.LayoutParams(match, match))
+        root.addView(top, FrameLayout.LayoutParams(match, wrap, Gravity.TOP))
+
         // Edge to edge: keep content clear of the status bar, cutout and navigation bar.
-        col.setOnApplyWindowInsetsListener { v, insets ->
+        root.setOnApplyWindowInsetsListener { v, insets ->
             val bars = androidx.core.view.WindowInsetsCompat.toWindowInsetsCompat(insets, v).getInsets(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
-            v.setPadding(px(24) + bars.left, px(32) + bars.top, px(24) + bars.right, px(28) + bars.bottom)
+            top.setPadding(px(20) + bars.left, px(14) + bars.top, px(20) + bars.right, 0)
+            col.setPadding(px(24) + bars.left, px(140) + bars.top, px(24) + bars.right, px(28) + bars.bottom)
             insets
-        }
-        val root = FrameLayout(ctx).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF0F0C29.toInt(), 0xFF302B63.toInt(), 0xFF24243E.toInt()))
-            addView(scroll)
-            isClickable = true // swallow touches to what's underneath
         }
 
         // Countdown, breathing text and the incoming-call escape.
@@ -190,15 +187,18 @@ object PauseView {
             })
         }
         root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { anim.start(); handler.post(callCheck) }
-            override fun onViewDetachedFromWindow(v: View) { anim.cancel(); handler.removeCallbacksAndMessages(null) }
+            override fun onViewAttachedToWindow(v: View) {
+                anim.start(); handler.post(callCheck)
+                image?.animate()?.scaleX(1.12f)?.scaleY(1.12f)?.setDuration(total)?.setInterpolator(LinearInterpolator())?.start()
+            }
+            override fun onViewDetachedFromWindow(v: View) { anim.cancel(); handler.removeCallbacksAndMessages(null); image?.animate()?.cancel() }
         })
 
-        // Entry: fade in, content rises.
+        // Entry: fade in, text rises.
         root.alpha = 0f
-        root.animate().alpha(1f).setDuration(300).start()
-        col.translationY = px(30).toFloat()
-        col.animate().translationY(0f).setDuration(500).setInterpolator(OvershootInterpolator(1.1f)).start()
+        root.animate().alpha(1f).setDuration(350).start()
+        col.translationY = px(40).toFloat()
+        col.animate().translationY(0f).setDuration(600).setInterpolator(DecelerateInterpolator()).start()
         return root
     }
 
@@ -226,18 +226,23 @@ private class BreathRing(ctx: Context) : View(ctx) {
     var elapsedMs = 0L
         set(v) { field = v; invalidate() }
     private val dp = ctx.resources.displayMetrics.density
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 8 * dp; color = 0x26FFFFFF }
+    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 5 * dp; color = 0x40FFFFFF }
     private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 8 * dp; strokeCap = Paint.Cap.ROUND; color = 0xFF5EEAD4.toInt()
+        style = Paint.Style.STROKE; strokeWidth = 5 * dp; strokeCap = Paint.Cap.ROUND; color = 0xFFFFFFFF.toInt()
     }
-    private val blob = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x335EEAD4 }
+    private val blob = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33FFFFFF }
     private val num = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE; textSize = 46 * dp; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+        color = Color.WHITE; textSize = 22 * dp; textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        num.textSize = min(w, h) * 0.3f
+        track.strokeWidth = min(w, h) * 0.07f; arc.strokeWidth = track.strokeWidth
     }
     private val box = RectF()
 
     override fun onDraw(c: Canvas) {
-        val r = min(width, height) / 2f - 6 * dp
+        val r = min(width, height) / 2f - track.strokeWidth
         val cx = width / 2f; val cy = height / 2f
         box.set(cx - r, cy - r, cx + r, cy + r)
         c.drawCircle(cx, cy, r, track)
@@ -249,7 +254,7 @@ private class BreathRing(ctx: Context) : View(ctx) {
         val eased = (1 - kotlin.math.cos(k * Math.PI).toFloat()) / 2f
         c.drawCircle(cx, cy, r * (0.45f + 0.4f * eased), blob)
         val left = ((total - elapsedMs) / 1000f).toInt().coerceAtLeast(0) + if (elapsedMs < total) 1 else 0
-        val label = if (elapsedMs >= total) "✓" else "${left.coerceAtMost(Urges.SECONDS)}"
+        val label = if (elapsedMs >= total) "0" else "${left.coerceAtMost(Urges.SECONDS)}"
         c.drawText(label, cx, cy - (num.descent() + num.ascent()) / 2, num)
     }
 }

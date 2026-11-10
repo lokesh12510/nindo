@@ -314,7 +314,7 @@ private fun RuleEditor(existing: Rule?, onDismiss: () -> Unit, onSave: (Rule) ->
 
             EditorSection("Location", Icons.Rounded.Place)
             if (places.isEmpty()) {
-                Text("Save places like Home, Office or College in the Focus tab to make location-based rules.",
+                Text("Save places like Home, Office or College in Guard → Focus to make location-based rules.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

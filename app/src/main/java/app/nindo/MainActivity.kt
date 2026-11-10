@@ -9,8 +9,10 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,6 +20,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -47,17 +50,25 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); handle(intent) }
 
+    override fun onResume() {
+        super.onResume()
+        // Fresh app times from Android's usage history each time Nindō is opened.
+        UsageSync.syncAsync(this)
+        UsageSync.refreshTodayAsync(this, minGapMs = 0)
+    }
+
     private fun handle(i: android.content.Intent?) {
         if (i?.getBooleanExtra(EXTRA_REPORT, false) == true) UiNav.openReport.value = true
     }
 }
 
-enum class Tab(val label: String, val icon: ImageVector) {
-    Dashboard("Today", Icons.Rounded.Insights),
-    Rules("Rules", Icons.Rounded.Shield),
-    Activity("Activity", Icons.Rounded.Timeline),
-    Focus("Focus", Icons.Rounded.SelfImprovement),
-    Protect("Protect", Icons.Rounded.VerifiedUser),
+/** Material pattern: outlined icon normally, filled icon when the tab is selected. */
+enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
+    Today("Today", Icons.Outlined.WbSunny, Icons.Rounded.WbSunny),
+    Path("Path", Icons.Outlined.Flag, Icons.Rounded.Flag),
+    Sensei("Sensei", Icons.Outlined.AutoAwesome, Icons.Rounded.AutoAwesome),
+    Guard("Guard", Icons.Outlined.Shield, Icons.Rounded.Shield),
+    Insights("Insights", Icons.Outlined.BarChart, Icons.Rounded.BarChart),
 }
 
 @Composable
@@ -77,9 +88,15 @@ private fun Root() {
 
 @Composable
 private fun MainScaffold() {
-    var tab by rememberSaveable { mutableStateOf(Tab.Dashboard) }
+    var tabName by rememberSaveable { mutableStateOf(Tab.Today.name) }
+    val tab = Tab.entries.firstOrNull { it.name == tabName } ?: Tab.Today
+    fun go(t: Tab) { tabName = t.name }
     val wantReport by UiNav.openReport.collectAsState()
-    LaunchedEffect(wantReport) { if (wantReport) tab = Tab.Dashboard }
+    LaunchedEffect(wantReport) { if (wantReport) go(Tab.Today) }
+    val guardPage by UiNav.guardPage.collectAsState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Keep today's app times current while Nindō is on screen.
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(60_000); UsageSync.refreshTodayAsync(ctx) } }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0),
@@ -87,12 +104,12 @@ private fun MainScaffold() {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
                 Tab.entries.forEach { t ->
                     val selected = t == tab
-                    val scale by animateFloatAsState(if (selected) 1.15f else 1f, spring(dampingRatio = 0.45f), label = "navScale")
                     NavigationBarItem(
                         selected = selected,
-                        onClick = { tab = t },
-                        icon = { Icon(t.icon, null, Modifier.graphicsLayer { scaleX = scale; scaleY = scale }) },
-                        label = { Text(t.label) },
+                        onClick = { go(t) },
+                        icon = { Icon(if (selected) t.selectedIcon else t.icon, contentDescription = t.label) },
+                        label = { Text(t.label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium) },
+                        alwaysShowLabel = true,
                     )
                 }
             }
@@ -111,14 +128,14 @@ private fun MainScaffold() {
                 }
             }
         }
-        LaunchedEffect(tab) { scrolled.floatValue = 0f }
+        LaunchedEffect(tab, guardPage) { scrolled.floatValue = 0f }
         val threshold = with(density) { 96.dp.toPx() }
         val scrim by remember { derivedStateOf { scrolled.floatValue > threshold } }
         val dark = androidx.compose.foundation.isSystemInDarkTheme()
         val view = androidx.compose.ui.platform.LocalView.current
         SideEffect {
             (view.context as? android.app.Activity)?.window?.let { w ->
-                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = scrim && !dark
+                androidx.core.view.WindowCompat.getInsetsController(w, view).isAppearanceLightStatusBars = !dark
             }
         }
 
@@ -137,11 +154,11 @@ private fun MainScaffold() {
                 val reveal = remember(t) { RevealScope.forScreen(t) }
                 CompositionLocalProvider(LocalReveal provides reveal) {
                     when (t) {
-                        Tab.Dashboard -> DashboardScreen { tab = it }
-                        Tab.Rules -> RulesScreen()
-                        Tab.Activity -> ActivityScreen()
-                        Tab.Focus -> FocusScreen()
-                        Tab.Protect -> ProtectScreen()
+                        Tab.Today -> DashboardScreen { go(it) }
+                        Tab.Path -> PathScreen()
+                        Tab.Sensei -> SenseiScreen()
+                        Tab.Guard -> GuardScreen()
+                        Tab.Insights -> ActivityScreen()
                     }
                 }
             }
@@ -159,61 +176,101 @@ private fun MainScaffold() {
 @Composable
 fun PinLock(pin: String, title: String = "Enter your PIN", onUnlock: () -> Unit) {
     var entry by remember { mutableStateOf("") }
+    var wrong by remember { mutableStateOf(false) }
     val shake = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    val habits = remember { HabitEngine.last }
+    val len = pin.length.coerceAtLeast(4)
 
     fun press(d: String) {
-        if (entry.length >= 8) return
+        if (entry.length >= len) return
+        wrong = false
         entry += d
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         if (entry.length == pin.length) {
             if (entry == pin) onUnlock()
             else scope.launch {
+                wrong = true
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                for (x in listOf(24f, -20f, 14f, -8f, 0f)) shake.animateTo(x, tween(55))
+                for (x in listOf(26f, -22f, 16f, -10f, 4f, 0f)) shake.animateTo(x, tween(50))
                 entry = ""
             }
         }
     }
 
-    Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Brand.Indigo, Brand.Violet))).systemBarsPadding().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    // Slow-moving glows behind everything.
+    val t = rememberInfiniteTransition(label = "lockGlow")
+    val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Reverse), label = "drift")
+
+    Box(
+        Modifier.fillMaxSize().background(Color(0xFF0B0A1F)).drawBehind {
+            val w = size.width; val h = size.height
+            drawCircle(Brush.radialGradient(listOf(Tone.A.copy(alpha = 0.55f), Color.Transparent),
+                androidx.compose.ui.geometry.Offset(w * (0.15f + 0.2f * drift), h * 0.18f), w * 0.8f), w * 0.8f,
+                androidx.compose.ui.geometry.Offset(w * (0.15f + 0.2f * drift), h * 0.18f))
+            drawCircle(Brush.radialGradient(listOf(Tone.B.copy(alpha = 0.45f), Color.Transparent),
+                androidx.compose.ui.geometry.Offset(w * (0.9f - 0.2f * drift), h * 0.55f), w * 0.75f), w * 0.75f,
+                androidx.compose.ui.geometry.Offset(w * (0.9f - 0.2f * drift), h * 0.55f))
+        }.systemBarsPadding(),
     ) {
-        Icon(Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(12.dp))
-        Text(title, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
-        Text("Never give up · Stay committed · Keep moving forward", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-        Spacer(Modifier.height(28.dp))
-        Row(Modifier.graphicsLayer { translationX = shake.value }, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            repeat(pin.length.coerceAtLeast(4)) { i ->
-                val filled = i < entry.length
-                val s by animateFloatAsState(if (filled) 1.25f else 1f, spring(dampingRatio = 0.4f), label = "dot")
-                Box(Modifier.size(14.dp).graphicsLayer { scaleX = s; scaleY = s }.clip(CircleShape)
-                    .background(if (filled) Color.White else Color.White.copy(alpha = 0.3f)))
+        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.weight(0.6f))
+            Box(Modifier.size(64.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                Icon(if (wrong) Icons.Rounded.LockOpen else Icons.Rounded.Lock, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
-        }
-        Spacer(Modifier.height(40.dp))
-        val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "<")
-        keys.chunked(3).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(22.dp), modifier = Modifier.padding(vertical = 9.dp)) {
-                row.forEach { k ->
-                    Box(
-                        Modifier.size(72.dp).clip(CircleShape)
-                            .background(if (k.isEmpty()) Color.Transparent else Color.White.copy(alpha = 0.14f))
-                            .then(if (k.isEmpty()) Modifier else Modifier.pressable {
-                                if (k == "<") entry = entry.dropLast(1) else press(k)
-                            }),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (k == "<") Icon(Icons.AutoMirrored.Rounded.Backspace, null, tint = Color.White)
-                        else Text(k, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(16.dp))
+            Text("Nindō", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            AnimatedContent(wrong, label = "lockMsg") { w ->
+                Text(if (w) "Wrong PIN. Try again." else title, color = if (w) Color(0xFFFDA4AF) else Color.White.copy(alpha = 0.7f), fontSize = 15.sp)
+            }
+            habits?.takeIf { it.countToday > 0 }?.let { s ->
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.08f)).padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.TaskAlt, null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("${s.doneToday} of ${s.countToday} habits done today", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
+
+            Spacer(Modifier.height(30.dp))
+            Row(Modifier.graphicsLayer { translationX = shake.value }, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                repeat(len) { i ->
+                    val filled = i < entry.length
+                    val s by animateFloatAsState(if (filled) 1f else 0.6f, spring(dampingRatio = 0.4f, stiffness = 600f), label = "dot")
+                    Box(Modifier.size(16.dp).graphicsLayer { scaleX = s; scaleY = s }.clip(CircleShape)
+                        .background(when { wrong -> Color(0xFFFDA4AF); filled -> Color.White; else -> Color.White.copy(alpha = 0.22f) }))
+                }
+            }
+            Spacer(Modifier.weight(1f))
+
+            val keys = listOf("1" to "", "2" to "ABC", "3" to "DEF", "4" to "GHI", "5" to "JKL", "6" to "MNO",
+                "7" to "PQRS", "8" to "TUV", "9" to "WXYZ", "" to "", "0" to "+", "<" to "")
+            keys.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    row.forEach { (k, letters) ->
+                        Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+                            when (k) {
+                                "" -> {}
+                                "<" -> Box(Modifier.size(76.dp).clip(CircleShape).pressable { wrong = false; entry = entry.dropLast(1) },
+                                    contentAlignment = Alignment.Center) {
+                                    Icon(Icons.AutoMirrored.Rounded.Backspace, "Delete", tint = Color.White.copy(alpha = 0.85f))
+                                }
+                                else -> Column(Modifier.size(76.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.09f)).pressable { press(k) },
+                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                    Text(k, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Normal)
+                                    if (letters.isNotEmpty()) Text(letters, color = Color.White.copy(alpha = 0.5f), fontSize = 9.sp,
+                                        letterSpacing = 1.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
                     }
                 }
             }
+            Spacer(Modifier.height(18.dp))
+            Text("Never give up · Stay committed · Keep moving forward", color = Color.White.copy(alpha = 0.45f), fontSize = 12.sp)
         }
     }
 }

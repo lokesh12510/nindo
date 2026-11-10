@@ -104,6 +104,28 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "tracker.db", null, 2) {
     fun addSiteVisit(host: String) = bump("site_daily", mapOf("day" to today(), "host" to host), mapOf("visits" to 1))
     fun addSiteBlock(host: String) = bump("site_daily", mapOf("day" to today(), "host" to host), mapOf("blocks" to 1))
 
+    /** Replaces today's app times and hourly split with Android's figures. Other counters are left alone. */
+    fun setTodayTimes(day: String, perApp: Map<String, Long>, perHour: LongArray) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            perApp.forEach { (pkg, ms) ->
+                db.insertWithOnConflict("app_daily", null, ContentValues().apply { put("day", day); put("pkg", pkg) }, SQLiteDatabase.CONFLICT_IGNORE)
+                db.execSQL("UPDATE app_daily SET ms = ? WHERE day = ? AND pkg = ?", arrayOf<Any>(ms, day, pkg))
+            }
+            perHour.forEachIndexed { h, ms ->
+                if (ms > 0) {
+                    db.insertWithOnConflict("hourly", null, ContentValues().apply { put("day", day); put("hour", h) }, SQLiteDatabase.CONFLICT_IGNORE)
+                    db.execSQL("UPDATE hourly SET ms = ? WHERE day = ? AND hour = ?", arrayOf<Any>(ms, day, h))
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        writes.incrementAndGet()
+    }
+
     // ---------- backdated writes (Android usage-history import) ----------
     fun addAppTimeAt(pkg: String, at: Long, ms: Long) {
         if (ms <= 0) return

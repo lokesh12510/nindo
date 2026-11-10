@@ -1,7 +1,11 @@
 package app.nindo
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -9,187 +13,87 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 private data class DashData(
     val totals: Totals = Totals(0, 0, 0, 0, 0, 0, 0, 0),
     val apps: List<AppStat> = emptyList(),
     val sites: List<SiteStat> = emptyList(),
-    val blockedDns: List<DnsStat> = emptyList(),
-    val hourly: LongArray = LongArray(24),
-    val week: List<Pair<String, Long>> = emptyList(),
 )
 
+/** Today: habits and missions first, then a compact look at screen time. Details live in Insights. */
 @Composable
 fun DashboardScreen(goTo: (Tab) -> Unit) {
     val db = GuardApp.db
     val store = GuardApp.store
     val ctx = LocalContext.current
-    val data by rememberPolled(DashData()) {
-        DashData(db.totals(), db.topApps(limit = 6), db.topSites(limit = 5), db.topDns(limit = 5, blockedOnly = true), db.hourly(), db.lastDays(7))
-    }
+    val data by rememberPolled(DashData()) { DashData(db.totals(), db.topApps(limit = 5), db.topSites(limit = 5)) }
     val watcherOn by UrlWatcherService.running.collectAsState()
     val vpnOn by DnsVpnService.running.collectAsState()
-    val goalMs = store.screenGoalMin * 60_000L
     val wantReport by UiNav.openReport.collectAsState()
     var showReport by remember { mutableStateOf(false) }
     LaunchedEffect(wantReport) { if (wantReport) { showReport = true; UiNav.openReport.value = false } }
     if (showReport) ReportSheet { showReport = false }
     val t = data.totals
+    val hs by rememberHabits()
+    fun guard(page: Int) { UiNav.guardPage.value = page; goTo(Tab.Guard) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        run {
-            AuroraHeader(title = greeting(), subtitle = "Nindō · keep moving forward") {
-                Spacer(Modifier.height(18.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    UsageRing(t.screenMs.toFloat() / goalMs.coerceAtLeast(1)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            AnimatedDuration(t.screenMs, MaterialTheme.typography.headlineSmall, Color.White)
-                            Text("of ${fmtMinutes(store.screenGoalMin)}", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    Spacer(Modifier.width(18.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HeaderPill(if (watcherOn) "Watcher on" else "Watcher off", watcherOn)
-                        HeaderPill(if (vpnOn) "VPN filter on" else "VPN filter off", vpnOn)
-                        val pct = (t.screenMs * 100 / goalMs.coerceAtLeast(1)).toInt()
-                        Text(
-                            if (pct >= 100) "Over your daily goal" else "$pct% of your goal",
-                            color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        PageTitle(greeting(), SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date())) {
+            RankChip(hs.xp) { goTo(Tab.Path) }
+        }
+
+        TodayHero(hs, Modifier.padding(horizontal = 16.dp).enter(0))
+
+        SectionHeader("Today's habits", Modifier.padding(top = 6.dp), action = "All habits") { goTo(Tab.Path) }
+        HabitList(hs, Modifier.padding(horizontal = 16.dp).enter(1)) { goTo(Tab.Path) }
+
+        if (hs.missions.isNotEmpty()) {
+            SectionHeader("Daily missions", Modifier.padding(top = 6.dp))
+            MissionsRow(hs, Modifier.enter(2))
+        }
+
+        if (store.focusActive) Panel(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(24.dp)).clickable { guard(1) }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconTile(Icons.Rounded.CenterFocusStrong, Tone.B)
+                Spacer(Modifier.width(14.dp))
+                Text("Focus session until ${fmtClock(store.focusUntil)}", fontWeight = FontWeight.Medium)
             }
         }
 
-        run {
-            Column(Modifier.padding(horizontal = 16.dp).enter(1), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTile(Icons.Rounded.TouchApp, "App opens", Brand.Sky, Modifier.weight(1f), { goTo(Tab.Activity) }) {
-                        AnimatedNumber(t.opens, MaterialTheme.typography.headlineSmall)
-                    }
-                    StatTile(Icons.Rounded.Swipe, "Scrolling · ${t.swipes} swipes", Brand.Amber, Modifier.weight(1f), { goTo(Tab.Focus) }) {
-                        AnimatedDuration(t.scrollMs, MaterialTheme.typography.headlineSmall)
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatTile(Icons.Rounded.Block, "Blocks today", Brand.Rose, Modifier.weight(1f), { goTo(Tab.Activity) }) {
-                        AnimatedNumber(t.blocks + t.dnsBlocked, MaterialTheme.typography.headlineSmall)
-                    }
-                    StatTile(Icons.Rounded.Psychology, "Reels · ${Reels.stage(t.reels, store.reelCap).emoji} ${Reels.stage(t.reels, store.reelCap).label}",
-                        Brand.Teal, Modifier.weight(1f), { goTo(Tab.Focus) }) {
-                        AnimatedNumber(t.reels, MaterialTheme.typography.headlineSmall)
-                    }
-                }
-            }
-        }
+        SectionHeader("Screen time", Modifier.padding(top = 6.dp), action = "Insights") { goTo(Tab.Insights) }
+        ScreenCard(t, store.screenGoalMin, watcherOn, vpnOn, Modifier.padding(horizontal = 16.dp).enter(3)) { guard(2) }
 
-        run { StreakCard(Modifier.padding(horizontal = 16.dp).enter(2)) { showReport = true } }
-
-        if (store.focusActive) run {
-            Card(Modifier.padding(horizontal = 16.dp).fillMaxWidth().pressable { goTo(Tab.Focus) }, shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(containerColor = Brand.Violet.copy(alpha = 0.15f))) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.CenterFocusStrong, null, tint = Brand.Violet)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Focus session until ${fmtClock(store.focusUntil)}", fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-
-        run {
-            SectionCard("By hour", Modifier.padding(horizontal = 16.dp).enter(2)) {
-                val hourNow = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                BarChart(
-                    data.hourly.map { it.toFloat() },
-                    List(24) { if (it % 6 == 0) "${it}h" else "" },
-                    highlight = hourNow,
-                )
-            }
-        }
-
-        run {
-            SectionCard("Top apps", Modifier.padding(horizontal = 16.dp).enter(3)) {
-                if (data.apps.isEmpty()) EmptyHint(Icons.Rounded.Apps, "Turn on the watcher in Protect to start tracking apps.")
-                val max = data.apps.maxOfOrNull { it.ms }?.coerceAtLeast(1) ?: 1
+        if (data.apps.isNotEmpty()) {
+            SectionHeader("Top apps", Modifier.padding(top = 6.dp))
+            Panel(Modifier.padding(horizontal = 16.dp).enter(4), padding = 12.dp) {
+                val total = data.apps.sumOf { it.ms }.coerceAtLeast(1)
                 data.apps.forEach { a ->
-                    UsageRow(
-                        leading = { AppIcon(a.pkg) },
-                        title = Apps.label(ctx, a.pkg),
-                        subtitle = "${a.opens} opens" + (if (a.scrollMs > 0) " · ${fmtDuration(a.scrollMs)} scrolling" else "") +
-                            (if (a.blocks > 0) " · ${a.blocks} blocked" else ""),
-                        value = fmtDuration(a.ms),
-                        fraction = a.ms.toFloat() / max,
-                    )
+                    ShareRow({ AppIcon(a.pkg, 36.dp) }, Apps.label(ctx, a.pkg),
+                        "${a.opens} opens" + if (a.blocks > 0) " · ${a.blocks} blocked" else "",
+                        fmtDuration(a.ms), a.ms.toFloat() / total)
                 }
             }
         }
 
-        run {
-            SectionCard("Top websites", Modifier.padding(horizontal = 16.dp).enter(4)) {
-                if (data.sites.isEmpty()) EmptyHint(Icons.Rounded.Language, "Sites you open in any browser appear here.")
-                val max = data.sites.maxOfOrNull { it.ms }?.coerceAtLeast(1) ?: 1
+        if (data.sites.isNotEmpty()) {
+            SectionHeader("Top websites", Modifier.padding(top = 6.dp))
+            Panel(Modifier.padding(horizontal = 16.dp).enter(5), padding = 12.dp) {
+                val total = data.sites.sumOf { it.ms }.coerceAtLeast(1)
                 data.sites.forEach { s ->
-                    UsageRow(
-                        leading = { IconBadge(Icons.Rounded.Public, Brand.Sky) },
-                        title = s.host,
-                        subtitle = "${s.visits} visits" + if (s.blocks > 0) " · ${s.blocks} blocked" else "",
-                        value = fmtDuration(s.ms),
-                        fraction = s.ms.toFloat() / max,
-                        color = Brand.Sky,
-                    )
-                }
-            }
-        }
-
-        run {
-            SectionCard("Network filter", Modifier.padding(horizontal = 16.dp).enter(5)) {
-                Row {
-                    Column(Modifier.weight(1f)) {
-                        AnimatedNumber(t.dnsQueries, MaterialTheme.typography.titleLarge)
-                        Text("lookups checked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Column(Modifier.weight(1f)) {
-                        AnimatedNumber(t.dnsBlocked, MaterialTheme.typography.titleLarge, Brand.Rose)
-                        Text("blocked", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (data.blockedDns.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    data.blockedDns.forEach { d ->
-                        Row(Modifier.padding(vertical = 3.dp)) {
-                            Text(d.domain, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                            Text("${d.blocked}×", color = Brand.Rose, style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                } else if (!vpnOn) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Turn on the VPN filter in Protect to block sites in every app.", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
-        run {
-            SectionCard("Last 7 days", Modifier.padding(horizontal = 16.dp).enter(6)) {
-                val fmtIn = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                val fmtOut = SimpleDateFormat("EEE", Locale.getDefault())
-                if (data.week.isNotEmpty()) {
-                    BarChart(
-                        data.week.map { it.second.toFloat() },
-                        data.week.map { fmtOut.format(fmtIn.parse(it.first)!!) },
-                        highlight = data.week.size - 1, height = 110.dp, color = Brand.Teal,
-                    )
-                    val avg = data.week.map { it.second }.average().toLong()
-                    Spacer(Modifier.height(8.dp))
-                    Text("Daily average ${fmtDuration(avg)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ShareRow({ IconTile(Icons.Rounded.Public, Brand.Sky, 36.dp) }, s.host,
+                        "${s.visits} visits" + if (s.blocks > 0) " · ${s.blocks} blocked" else "",
+                        fmtDuration(s.ms), s.ms.toFloat() / total, Brand.Sky)
                 }
             }
         }
@@ -197,12 +101,88 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
 }
 
 @Composable
-private fun HeaderPill(text: String, on: Boolean) {
-    Surface(color = Color.White.copy(alpha = 0.16f), shape = MaterialTheme.shapes.extraLarge) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(on)
-            Spacer(Modifier.width(4.dp))
-            Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
+private fun TodayHero(s: HabitSnapshot, modifier: Modifier) {
+    val done = s.doneToday
+    val count = s.countToday
+    val headline = when {
+        count == 0 -> "Start your path"
+        done == count -> "All done today"
+        done == 0 -> "Let's begin"
+        else -> "Keep going"
+    }
+    HeroCard(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Ring(if (count == 0) 0f else done.toFloat() / count, 104.dp, 9.dp, Color.White, Color.White.copy(alpha = 0.2f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("$done/$count", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text("habits", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                }
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(headline, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("+${s.xpToday} XP today", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                val next = Ranks.next(s.xp)
+                Text(
+                    when {
+                        s.xpPendingToday > 0 -> "+${s.xpPendingToday} more at midnight if you hold on"
+                        next != null -> "${next.minXp - s.xp} XP to ${next.name}"
+                        else -> "Highest rank reached"
+                    }, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+            }
+        }
+        val done3 = s.missions.count { it.done }
+        if (s.missions.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.13f)).padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Flag, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text("Missions", Modifier.weight(1f), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                s.missions.forEach { m ->
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (m.done) Color.White else Color.White.copy(alpha = 0.25f)))
+                }
+                Spacer(Modifier.width(10.dp))
+                Text("$done3 of ${s.missions.size}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScreenCard(t: Totals, goalMin: Int, watcherOn: Boolean, vpnOn: Boolean, modifier: Modifier, onProtect: () -> Unit) {
+    val goalMs = goalMin * 60_000L
+    val f = t.screenMs.toFloat() / goalMs.coerceAtLeast(1)
+    val c = when { f > 1f -> Brand.Rose; f > 0.8f -> Brand.Amber; else -> Brand.Green }
+    val store = GuardApp.store
+    Panel(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Ring(f, 96.dp, 8.dp, c, c.copy(alpha = 0.15f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    AnimatedDuration(t.screenMs, MaterialTheme.typography.titleMedium)
+                    Text("of ${fmtMinutes(goalMin)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                StatLine(Icons.Rounded.TouchApp, Brand.Sky, "App opens", "${t.opens}")
+                StatLine(Icons.Rounded.Movie, Brand.Teal, "Reels", if (store.reelCap > 0) "${t.reels} / ${store.reelCap}" else "${t.reels}")
+                StatLine(Icons.Rounded.Swipe, Brand.Amber, "Scrolling", fmtDuration(t.scrollMs))
+                StatLine(Icons.Rounded.Block, Brand.Rose, "Blocks", "${t.blocks + t.dnsBlocked}")
+            }
+        }
+        if (!watcherOn || !vpnOn) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Brand.Amber.copy(alpha = 0.12f)).clickable(onClick = onProtect)
+                .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.ErrorOutline, null, tint = Brand.Amber, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(listOfNotNull(if (!watcherOn) "Watcher is off" else null, if (!vpnOn) "VPN filter is off" else null).joinToString(" · "),
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                Text("Fix", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }

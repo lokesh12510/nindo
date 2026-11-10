@@ -32,8 +32,8 @@ class GuardWidget : AppWidgetProvider() {
             v.setTextViewText(R.id.w_time, fmtDuration(t.screenMs))
             v.setTextViewText(R.id.w_goal, "of ${fmtMinutes(s.screenGoalMin)} · ${t.opens} opens")
             v.setProgressBar(R.id.w_progress, 100, ((t.screenMs * 100) / goal.coerceAtLeast(1)).toInt().coerceIn(0, 100), false)
-            val reelPart = if (s.reelsOn) " · ${Reels.stage(t.reels, s.reelCap).emoji} ${t.reels} reels" else ""
-            v.setTextViewText(R.id.w_streak, (if (streak.current > 0) "🔥 ${streak.current}-day streak" else "Start a streak") + reelPart)
+            val reelPart = if (s.reelsOn) " · ${t.reels} reels" else ""
+            v.setTextViewText(R.id.w_streak, (if (streak.current > 0) "${streak.current}-day streak" else "Start a streak") + reelPart)
             val now = System.currentTimeMillis()
             v.setTextViewText(R.id.w_focus,
                 if (s.focusActive) "Focus · ${(s.focusUntil - now) / 60_000 + 1} min left" else "▶  Focus ${fmtMinutes(s.focusDefaultMin)}")

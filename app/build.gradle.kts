@@ -11,8 +11,8 @@ android {
         applicationId = "app.nindo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "4.8"
+        versionCode = 17
+        versionName = "5.4"
     }
     buildTypes {
         release {

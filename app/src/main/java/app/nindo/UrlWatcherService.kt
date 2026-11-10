@@ -91,6 +91,7 @@ class UrlWatcherService : AccessibilityService() {
     private var overlay: ReelOverlay? = null
     private var blockOverlay: BlockOverlay? = null
     private var pauseOverlay: PauseOverlay? = null
+    private var reminderOverlay: ReminderOverlay? = null
     private var lastNightAt = 0L
     private val reelSession = Reels.Session()
     private var reelPkg: String? = null
@@ -132,6 +133,13 @@ class UrlWatcherService : AccessibilityService() {
         blockOverlay = BlockOverlay(this)
         pauseOverlay = PauseOverlay(this)
         Urges.overlayHost = { r -> pauseOverlay?.show(r) ?: false }
+        reminderOverlay = ReminderOverlay(this)
+        // Called from the alarm's background thread: hop to the main thread and wait for the answer.
+        Reminders.overlayHost = { h, msg ->
+            val q = java.util.concurrent.ArrayBlockingQueue<Boolean>(1)
+            android.os.Handler(android.os.Looper.getMainLooper()).post { q.offer(reminderOverlay?.show(h, msg) ?: false) }
+            q.poll(2, java.util.concurrent.TimeUnit.SECONDS) ?: false
+        }
         refreshReelDay(force = true)
         LocationTracker.start(this)
         handler.post(ticker)
@@ -164,6 +172,7 @@ class UrlWatcherService : AccessibilityService() {
         blockOverlay?.destroy(); blockOverlay = null
         Urges.overlayHost = null
         pauseOverlay?.destroy(); pauseOverlay = null
+        reminderOverlay?.destroy(); reminderOverlay = null; Reminders.overlayHost = null
         val now = System.currentTimeMillis()
         store.watcherAliveAt = now; store.usageSyncedUntil = now
         running.value = false
@@ -249,6 +258,8 @@ class UrlWatcherService : AccessibilityService() {
         Focus.check(this)
         if (now - lastWidgetAt > 60_000) { lastWidgetAt = now; GuardWidget.updateAll(this) }
         if (now - lastAliveAt > 30_000) { lastAliveAt = now; store.watcherAliveAt = now }
+        // Every few minutes, correct today's times from Android's history (also keeps time limits accurate).
+        UsageSync.refreshTodayAsync(this, minGapMs = 5 * 60_000L)
         currentPkg?.let(::checkApp)
         val host = currentHost; val url = currentUrl
         if (host != null && url != null) Engine.checkSite(url, host)?.let { blockSite(host, it) }
@@ -410,7 +421,7 @@ class UrlWatcherService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_BACK)
         if (now - lastCapToastAt > 8000) {
             lastCapToastAt = now
-            blockOverlay?.show("Reels closed for today", "Reel limit of ${store.reelCap} reached. Resets at midnight.", "🧟", 3000)
+            blockOverlay?.show("Reels closed for today", "Reel limit of ${store.reelCap} reached. Resets at midnight.", showMs = 6000)
             db.addAppBlock(pkg)
             db.event(Kind.BLOCK, pkg, "Reels in ${Apps.label(this, pkg)}", "Reel limit of ${store.reelCap} reached")
         }

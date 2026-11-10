@@ -10,12 +10,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -55,33 +59,12 @@ fun ReelCounterCard(modifier: Modifier = Modifier) {
     }
 
     SectionCard("Reels & Shorts counter", modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(96.dp).clip(CircleShape).background(color.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                AnimatedContent(stage.emoji, label = "emoji", transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) }) { e ->
-                    Text(e, fontSize = 52.sp, modifier = Modifier.graphicsLayer {
-                        scaleX = bounce.value; scaleY = bounce.value; rotationZ = wobble.value
-                    })
-                }
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                AnimatedNumber(data.today, MaterialTheme.typography.displaySmall, color)
-                Text(if (s.reelCap > 0) "of ${s.reelCap} reels today" else "reels & shorts today",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(stage.label, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
-            }
-        }
-        if (s.reelCap > 0) {
-            Spacer(Modifier.height(10.dp))
-            val f by animateFloatAsState((data.today.toFloat() / s.reelCap).coerceIn(0f, 1f), tween(800), label = "cap")
-            LinearProgressIndicator(progress = { f }, Modifier.fillMaxWidth().height(8.dp).clip(CircleShape), color = color,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant, drawStopIndicator = {})
-        }
+        ReelGauge(data.today, s.reelCap, color, stage.label, bounce.value)
         if (data.byApp.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            val max = data.byApp.maxOf { it.second }.coerceAtLeast(1)
+            val total = data.byApp.sumOf { it.second }.coerceAtLeast(1)
             data.byApp.forEach { (pkg, n) ->
-                UsageRow({ AppIcon(pkg, 34.dp) }, Apps.label(ctx, pkg), "≈ ${fmtDuration(n * 20_000L)} watching", "$n", n.toFloat() / max, color)
+                ShareRow({ AppIcon(pkg, 34.dp) }, Apps.label(ctx, pkg), "≈ ${fmtDuration(n * 20_000L)} watching", "$n", n.toFloat() / total, color)
             }
         }
         if (data.week.any { it.second > 0 }) {
@@ -145,5 +128,50 @@ fun ReelCounterCard(modifier: Modifier = Modifier) {
     if (pickApps) AppPicker(single = false, selected = s.reelApps, onDismiss = { pickApps = false }) {
         s.reelApps = if (locked) s.reelApps + it else it
         pickApps = false
+    }
+}
+
+
+/** Stage colours, mild to severe, matching Reels.stage. */
+private val GAUGE = listOf(0xFF16A34A, 0xFF65A30D, 0xFFD97706, 0xFFEA580C, 0xFFDC2626, 0xFF7C3AED)
+
+/**
+ * A half-circle gauge in six stage segments that fill as reels add up, with a knob at today's
+ * count. The number and the brain stage sit inside the arc.
+ */
+@Composable
+private fun ReelGauge(count: Int, cap: Int, color: Color, label: String, bounce: Float) {
+    val max = if (cap > 0) cap else 100
+    val f by animateFloatAsState((count.toFloat() / max).coerceIn(0f, 1f), tween(800, easing = FastOutSlowInEasing), label = "gauge")
+    Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.BottomCenter) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val sw = 18.dp.toPx()
+            val d = minOf(size.width - sw * 2, (size.height - sw) * 2)
+            val tl = Offset((size.width - d) / 2, sw / 2 + 4.dp.toPx())
+            val arc = Size(d, d)
+            val seg = 180f / GAUGE.size
+            val gap = 2.5f
+            val filledDeg = 180f * f
+            GAUGE.forEachIndexed { i, c ->
+                val start = 180f + i * seg
+                drawArc(Color(c).copy(alpha = 0.16f), start + gap / 2, seg - gap, false, tl, arc, style = Stroke(sw))
+                val fill = (filledDeg - i * seg).coerceIn(0f, seg) - gap
+                if (fill > 0f) drawArc(Color(c), start + gap / 2, fill, false, tl, arc, style = Stroke(sw))
+            }
+            val r = d / 2
+            val c = tl + Offset(r, r)
+            val a = Math.toRadians((180.0 + filledDeg))
+            val knob = c + Offset((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat())
+            drawCircle(Color.White, sw * 0.75f, knob)
+            drawCircle(color, sw * 0.48f, knob)
+        }
+        Column(Modifier.padding(bottom = 6.dp).graphicsLayer { scaleX = bounce; scaleY = bounce },
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Rounded.Psychology, null, tint = color, modifier = Modifier.size(26.dp))
+            AnimatedNumber(count, MaterialTheme.typography.displaySmall, color)
+            Text(if (cap > 0) "of $cap reels today" else "reels & shorts today", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
