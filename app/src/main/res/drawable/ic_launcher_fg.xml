@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Original four-blade shuriken: the "way" that keeps turning forward. -->
+    <group android:pivotX="54" android:pivotY="54" android:rotation="12">
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M54,25 Q57,44 63,46 L83,54 Q64,57 62,63 L54,83 Q51,64 45,62 L25,54 Q44,51 46,45 Z" />
+        <path android:fillColor="#4F46E5"
+            android:pathData="M54,48 A6,6 0,1 1,53.99,48 Z" />
+    </group>
+</vector>

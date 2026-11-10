@@ -1,0 +1,44 @@
+# ---- Gradle ----
+.gradle/
+build/
+**/build/
+.kotlin/
+
+# ---- Local machine config (SDK path, secrets) ----
+local.properties
+*.env
+
+# ---- Android Studio / IntelliJ ----
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+captures/
+.navigation/
+
+# ---- Native builds ----
+.externalNativeBuild/
+.cxx/
+
+# ---- Build outputs ----
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+output-metadata.json
+
+# ---- Signing keys (never commit) ----
+*.jks
+*.keystore
+keystore.properties
+
+# ---- Logs / dumps ----
+*.log
+*.hprof
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+desktop.ini

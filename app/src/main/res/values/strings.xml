@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nindō</string>
+    <string name="service_label">Nindō watcher</string>
+    <string name="service_description">Lets Nindō see which app is open, read browser address bars and notice long scrolling sessions, so it can track your usage and apply your blocking rules. Everything stays on your phone.</string>
+    <string name="widget_desc">Today\'s screen time, your streak and a focus button</string>
+    <string name="admin_label">Nindō uninstall protection</string>
+</resources>
