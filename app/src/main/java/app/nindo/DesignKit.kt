@@ -176,6 +176,7 @@ val MissionType.icon: ImageVector get() = when (this) {
     MissionType.SCREEN -> Icons.Rounded.PhoneAndroid
     MissionType.REELS -> Icons.Rounded.Movie
     MissionType.FOCUS -> Icons.Rounded.CenterFocusStrong
+    MissionType.SENSEI -> Icons.Rounded.SmartDisplay
 }
 
 // --------------------------------------------------------------- Sensei orb

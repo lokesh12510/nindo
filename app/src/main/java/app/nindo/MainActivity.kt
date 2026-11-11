@@ -36,7 +36,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    companion object { const val EXTRA_REPORT = "open_report" }
+    companion object { const val EXTRA_REPORT = "open_report"; const val EXTRA_CALL = "open_call" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handle(i: android.content.Intent?) {
         if (i?.getBooleanExtra(EXTRA_REPORT, false) == true) UiNav.openReport.value = true
+        if (i?.getBooleanExtra(EXTRA_CALL, false) == true) UiNav.openCall.value = true
     }
 }
 
@@ -93,6 +94,8 @@ private fun MainScaffold() {
     fun go(t: Tab) { tabName = t.name }
     val wantReport by UiNav.openReport.collectAsState()
     LaunchedEffect(wantReport) { if (wantReport) go(Tab.Today) }
+    val wantCall by UiNav.openCall.collectAsState()
+    LaunchedEffect(wantCall) { if (wantCall) go(Tab.Sensei) }
     val guardPage by UiNav.guardPage.collectAsState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     // Keep today's app times current while Nindō is on screen.

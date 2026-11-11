@@ -67,6 +67,8 @@ object Notify {
 /** Lets notifications and alarms ask the UI to open a screen. */
 object UiNav {
     val openReport = MutableStateFlow(false)
+    /** Back to the call with Sensei (from its ongoing notification). */
+    val openCall = MutableStateFlow(false)
     /** Guard tab page: 0 Rules, 1 Focus, 2 Protect. */
     val guardPage = MutableStateFlow(0)
 }
@@ -375,12 +377,34 @@ class FeatureReceiver : BroadcastReceiver() {
             Focus.ACTION_STOP -> { Focus.stop(ctx); Focus.rearm(ctx) }
             Focus.ACTION_START -> if (!GuardApp.store.focusActive) Focus.start(ctx, GuardApp.store.focusDefaultMin)
             Reports.ACTION_WEEKLY -> { Reports.deliver(ctx); Reports.schedule(ctx) }
+            SenseiCalls.ACTION_RING -> {
+                val id = intent.getStringExtra(SenseiCalls.EXTRA_ID) ?: return
+                val kind = runCatching { ScheduledCall.Kind.valueOf(intent.getStringExtra(SenseiCalls.EXTRA_KIND) ?: "") }
+                    .getOrDefault(ScheduledCall.Kind.REMINDER)
+                val title = intent.getStringExtra(SenseiCalls.EXTRA_TITLE) ?: ""
+                val done = goAsync()
+                Thread { try { runCatching { SenseiCalls.ring(ctx.applicationContext, id, kind, title) } } finally { done.finish() } }.start()
+            }
+            SenseiCalls.ACTION_DECLINE -> intent.getStringExtra(SenseiCalls.EXTRA_ID)?.let { id ->
+                val done = goAsync()
+                Thread { try { runCatching { SenseiCalls.declined(ctx.applicationContext, id) } } finally { done.finish() } }.start()
+            }
+            SenseiCalls.ACTION_MISSED -> intent.getStringExtra(SenseiCalls.EXTRA_ID)?.let { id ->
+                val done = goAsync()
+                Thread { try { runCatching { SenseiCalls.missed(ctx.applicationContext, id) } } finally { done.finish() } }.start()
+            }
+            Feeds.ACTION_REFRESH -> {
+                Feeds.schedule(ctx)
+                val done = goAsync()
+                Thread { try { runCatching { Feeds.refresh(ctx.applicationContext) } } finally { done.finish() } }.start()
+            }
             Reminders.ACTION_FIRE, Reminders.ACTION_DONE, Reminders.ACTION_SNOOZE, Reminders.ACTION_SKIP -> {
                 val done = goAsync()
                 Thread { try { runCatching { Reminders.onReceive(ctx, intent) } } finally { done.finish() } }.start()
             }
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                Reports.schedule(ctx); Focus.rearm(ctx)
+                Reports.schedule(ctx); Focus.rearm(ctx); Feeds.schedule(ctx)
+                Thread { runCatching { SenseiCalls.reschedule(ctx.applicationContext) } }.start()
                 Thread { runCatching { Reminders.scheduleAll(ctx) } }.start()
                 if (GuardApp.store.vpnWanted && VpnService.prepare(ctx) == null) runCatching { DnsVpnService.start(ctx) }
             }

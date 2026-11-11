@@ -397,6 +397,7 @@ fun HabitDetailSheet(id: String, s: HabitSnapshot, onDismiss: () -> Unit, onEdit
                             Text(subtitle(d, liveMs), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                                 color = if (d.failed) Brand.Rose else MaterialTheme.colorScheme.onSurface)
                             Text(when {
+                                h.auto == AutoSource.SENSEI_PICK -> if (d.done) "Watched today. +${Xp.AUTO} XP" else "Ticks itself when you watch today's Sensei pick in Nindō."
                                 h.isAuto -> "Nindō checks this one for you. It settles at midnight."
                                 h.kind == HabitKind.AVOID -> if (d.failed) "Tap the shield to undo." else "Hold the shield if you slipped. It settles at midnight."
                                 d.done -> "+${Xp.HABIT} XP earned"

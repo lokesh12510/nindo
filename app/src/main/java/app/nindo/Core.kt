@@ -40,6 +40,9 @@ class GuardApp : Application() {
         Thread { Blocklists.init(filesDir) }.start()
         Notify.createChannels(this)
         Reports.schedule(this)
+        Feeds.schedule(this)
+        Feeds.refreshIfDue(this)
+        Thread { runCatching { SenseiCalls.reschedule(this) } }.start()
         Focus.rearm(this)
         LocationTracker.start(this)
     }

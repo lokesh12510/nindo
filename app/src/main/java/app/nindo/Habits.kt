@@ -71,7 +71,8 @@ data class HabitCfg(
 }
 
 /** Avoid-habits Nindō can judge on its own from the data it already tracks. */
-enum class AutoSource { NONE, SCREEN_GOAL, REEL_CAP }
+/** Habits Nindō ticks itself. SENSEI_PICK: watching the day's video pick in the Sensei pass. */
+enum class AutoSource { NONE, SCREEN_GOAL, REEL_CAP, SENSEI_PICK }
 
 /** What a habit is about. Decides its icon and colour (see HabitsUi). */
 enum class HabitCategory(val label: String) {
@@ -374,7 +375,7 @@ data class HabitDay(
 
 data class HabitStreak(val current: Int = 0, val best: Int = 0, val freezes: Int = 0)
 
-enum class MissionType { HABITS, PERFECT, SCREEN, REELS, FOCUS }
+enum class MissionType { HABITS, PERFECT, SCREEN, REELS, FOCUS, SENSEI }
 
 data class Mission(val type: MissionType, val title: String, val progress: Float, val done: Boolean, val pending: Boolean, val failed: Boolean)
 
@@ -401,6 +402,9 @@ object HabitEngine {
         val goalMs: Long, val reelCap: Int,
         val stats: Map<String, DayStat>,
         val logs: Map<String, Map<String, Int>>,
+        /** Days with a Sensei video pick, and days one was watched. */
+        val pickDays: Set<String> = emptySet(),
+        val watchedDays: Set<String> = emptySet(),
     )
 
     /** A manual habit's own result for one day, ignoring the schedule. */
@@ -463,7 +467,9 @@ object HabitEngine {
         val pool = mutableListOf(MissionType.PERFECT, MissionType.SCREEN, MissionType.REELS, MissionType.FOCUS)
         if (judged.isEmpty()) pool.remove(MissionType.PERFECT)
         pool.shuffle(java.util.Random(day.hashCode().toLong()))
-        val picked = (if (judged.isNotEmpty()) listOf(MissionType.HABITS) else emptyList()) + pool
+        // A day with a Sensei video pick always has "Watch your Sensei pick" as a mission.
+        val picked = (if (judged.isNotEmpty()) listOf(MissionType.HABITS) else emptyList()) +
+            (if (day in c.pickDays) listOf(MissionType.SENSEI) else emptyList()) + pool
         val st = c.stats[day]
         val ms = st?.ms ?: 0L
         val reels = st?.reels ?: 0
@@ -494,6 +500,10 @@ object HabitEngine {
                 }
                 MissionType.FOCUS -> Mission(t, "20-min focus session", (focusMs / 1_200_000f).coerceIn(0f, 1f),
                     done = focusMs >= 20 * 60_000L, pending = false, failed = false)
+                MissionType.SENSEI -> {
+                    val w = day in c.watchedDays
+                    Mission(t, "Watch your Sensei pick", if (w) 1f else 0f, done = w, pending = false, failed = false)
+                }
             }
         }
     }
@@ -515,7 +525,9 @@ object HabitEngine {
 
     private fun ctx(from: String, to: String = today()): Ctx {
         val store = GuardApp.store
-        return Ctx(store.screenGoalMin * 60_000L, store.reelCap.coerceAtLeast(1), GuardApp.db.dayStats(from, to), GuardApp.habits.logs(from, to))
+        val (picks, watched) = runCatching { GuardApp.sensei.videoDays(from, to) }.getOrDefault(emptySet<String>() to emptySet())
+        return Ctx(store.screenGoalMin * 60_000L, store.reelCap.coerceAtLeast(1), GuardApp.db.dayStats(from, to), GuardApp.habits.logs(from, to),
+            picks, watched)
     }
 
     /** The last snapshot loaded, for places outside the UI (pause screen, block popup, reminders). */

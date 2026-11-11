@@ -4,5 +4,6 @@
     <string name="service_label">Nindō watcher</string>
     <string name="service_description">Lets Nindō see which app is open, read browser address bars and notice long scrolling sessions, so it can track your usage and apply your blocking rules. Everything stays on your phone.</string>
     <string name="widget_desc">Today\'s screen time, your streak and a focus button</string>
+    <string name="sensei_widget_desc">Tell Sensei a reminder or a task by voice, and see when Sensei calls next</string>
     <string name="admin_label">Nindō uninstall protection</string>
 </resources>

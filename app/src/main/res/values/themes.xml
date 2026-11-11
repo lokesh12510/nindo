@@ -5,6 +5,12 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+    <!-- See-through window for the "Tell Sensei" card opened from the widget. -->
+    <style name="Theme.Nindo.Overlay" parent="Theme.Nindo">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+    </style>
     <color name="bg">#F6F6FB</color>
     <color name="brand">#4F46E5</color>
 </resources>

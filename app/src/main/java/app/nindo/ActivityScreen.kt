@@ -121,6 +121,8 @@ fun ActivityScreen() {
             WeekCard(trend, goalMs, Modifier.padding(horizontal = 16.dp).enter(3)) { showReport = true }
             TrendsCard(trend, Modifier.padding(horizontal = 16.dp).enter(4))
         }
+
+        CallsCard(Modifier.padding(horizontal = 16.dp).enter(5))
     }
 
     if (showTimeline) TimelineSheet(selected) { showTimeline = false }

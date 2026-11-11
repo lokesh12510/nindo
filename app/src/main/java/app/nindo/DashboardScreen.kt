@@ -54,6 +54,7 @@ fun DashboardScreen(goTo: (Tab) -> Unit) {
         }
 
         TodayHero(hs, Modifier.padding(horizontal = 16.dp).enter(0))
+        SenseiLine(Modifier.padding(horizontal = 16.dp).enter(0)) { goTo(Tab.Sensei) }
 
         SectionHeader("Today's habits", Modifier.padding(top = 6.dp), action = "All habits") { goTo(Tab.Path) }
         HabitList(hs, Modifier.padding(horizontal = 16.dp).enter(1)) { goTo(Tab.Path) }
@@ -192,4 +193,24 @@ private fun greeting(): String = when (Calendar.getInstance().get(Calendar.HOUR_
     in 12..16 -> "Good afternoon"
     in 17..21 -> "Good evening"
     else -> "Late night"
+}
+
+/** Sensei's line of the day on the Today tab; tap to go to Sensei. */
+@Composable
+private fun SenseiLine(modifier: Modifier, onOpen: () -> Unit) {
+    val word by rememberPolled("", intervalMs = 60_000) {
+        runCatching { Sensei.brain.todaysWord(Sensei.recap(GuardApp.sensei.interests())) }.getOrDefault("")
+    }
+    if (word.isEmpty()) return
+    Panel(modifier.clip(RoundedCornerShape(24.dp)).clickable(onClick = onOpen), padding = 14.dp) {
+        Row(verticalAlignment = Alignment.Top) {
+            IconTile(Icons.Rounded.FormatQuote, Tone.B, 40.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("SENSEI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(word, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
 }

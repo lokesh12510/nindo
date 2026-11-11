@@ -9,6 +9,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Sensei voice call (Phase 2C). Audio never leaves the phone. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Sensei calls you (Phase 2D): on time, ringing full screen like a phone call. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Keeps a call going with the screen off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- Usage Access: imports past app usage from Android's own history. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
@@ -24,6 +33,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.HOME" />
         </intent>
+        <!-- Text-to-speech engines, for Sensei's voice and spoken reminders. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <application
@@ -33,6 +46,11 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.Nindo">
+
+        <!-- GPU for Gemma 4 when the phone has OpenCL; the app still runs without it. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"
@@ -44,6 +62,38 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".SenseiCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- "Tell Sensei": quick voice reminder or task, from the widget. -->
+        <activity
+            android:name=".QuickNoteActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.nindo.note"
+            android:theme="@style/Theme.Nindo.Overlay"
+            android:windowSoftInputMode="adjustResize" />
+
+        <receiver android:name=".SenseiWidget" android:exported="true" android:label="Tell Sensei">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/sensei_widget_info" />
+        </receiver>
+
+        <!-- Sensei's incoming call: shows over the lock screen and turns the screen on. -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="app.nindo.call"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true" />
 
         <activity
             android:name=".BlockActivity"

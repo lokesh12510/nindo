@@ -42,3 +42,6 @@ keystore.properties
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---- Files the Claude desktop app copies into this folder ----
+Claude outputs/
