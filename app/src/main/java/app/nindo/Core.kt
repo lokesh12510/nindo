@@ -26,6 +26,7 @@ class GuardApp : Application() {
         lateinit var store: Store; private set
         lateinit var db: Db; private set
         lateinit var habits: HabitDb; private set
+        lateinit var sensei: SenseiDb; private set
     }
 
     override fun onCreate() {
@@ -34,6 +35,7 @@ class GuardApp : Application() {
         store = Store(this)
         db = Db(this)
         habits = HabitDb(this)
+        sensei = SenseiDb(this)
         Thread { runCatching { habits.seedIfNeeded() }; runCatching { Reminders.scheduleAll(this) } }.start()
         Thread { Blocklists.init(filesDir) }.start()
         Notify.createChannels(this)
